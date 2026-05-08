@@ -73,7 +73,7 @@ export function ThresholdResults({ analysis }: ThresholdResultsProps) {
       {/* Method and confidence info */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground">
-          <span>Methode: {analysis.method === 'dmax' ? 'Dmax' : 'Fixwert (4.0 mmol/L)'}</span>
+          <span>Methode: {analysis.method.includes('moddmax') ? 'ModDmax' : 'Fixwert (4.0 mmol/L)'}</span>
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger>
@@ -81,8 +81,8 @@ export function ThresholdResults({ analysis }: ThresholdResultsProps) {
               </TooltipTrigger>
               <TooltipContent className="max-w-xs">
                 <p className="text-sm">
-                  {analysis.method === 'dmax' 
-                    ? 'Die Dmax-Methode findet den Punkt der maximalen Abweichung von einer Geraden zwischen erstem und letztem Messpunkt. Sie gilt als genaueste Methode zur Bestimmung des MLSS.'
+                  {analysis.method.includes('moddmax')
+                    ? 'Die ModDmax-Methode findet den Punkt der maximalen Abweichung von einer Geraden zwischen erstem und letztem Messpunkt. Sie gilt als genaueste Methode zur Bestimmung des MLSS.'
                     : 'Die Fixwert-Methode verwendet einen festen Laktatwert von 4.0 mmol/L als Schwelle (OBLA-Methode nach Sjödin & Jacobs).'}
                 </p>
               </TooltipContent>
