@@ -95,6 +95,7 @@ export const stepTestSchema = z.object({
   steps: z.array(stepDataSchema),
   results: stepTestResultsSchema.optional(),
   status: z.enum(['setup', 'in_progress', 'completed', 'cancelled']),
+  resting_lactate: z.number().min(0).max(30).optional(),
   notes: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),

@@ -603,7 +603,7 @@ function detectLT2OBLA(data: DataPoint[]): { speed: number; lactate: number } | 
 // MAIN THRESHOLD DETECTION
 // ============================================================================
 
-export function detectThresholds(steps: StepTestStep[]): ThresholdAnalysis {
+export function detectThresholds(steps: StepTestStep[], restingLactate?: number): ThresholdAnalysis {
   const warnings: string[] = []
   
   // Filter valid steps
@@ -629,7 +629,8 @@ export function detectThresholds(steps: StepTestStep[]): ThresholdAnalysis {
   })).sort((a, b) => a.speed - b.speed)
   
   // Calculate baseline (minimum lactate - accounting for lactate dip)
-  const baseline = Math.min(...data.map(d => d.lactate))
+  const minStepLactate = Math.min(...data.map(d => d.lactate))
+  const baseline = Math.min(minStepLactate, restingLactate ?? Infinity)
   const maxLactate = Math.max(...data.map(d => d.lactate))
   
   // Quality warnings
@@ -964,7 +965,7 @@ export function calculateTrainingZones(analysis: ThresholdAnalysis): TrainingZon
 // ANALYZE STEP TEST (main entry point for step test data)
 // ============================================================================
 
-export function analyzeStepTest(steps: StepData[]): StepTestResults | null {
+export function analyzeStepTest(steps: StepData[], restingLactate?: number): StepTestResults | null {
   // Convert StepData to StepTestStep format
   const stepsForAnalysis: StepTestStep[] = steps
     .filter(s => s.completed && s.lactate_mmol !== null)
@@ -977,7 +978,7 @@ export function analyzeStepTest(steps: StepData[]): StepTestResults | null {
   
   if (stepsForAnalysis.length < 3) return null
   
-  const analysis = detectThresholds(stepsForAnalysis)
+  const analysis = detectThresholds(stepsForAnalysis, restingLactate)
   const zones = calculateTrainingZones(analysis)
   
   // Convert to StepTestResults format

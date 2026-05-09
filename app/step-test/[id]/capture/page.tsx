@@ -89,11 +89,20 @@ export default function StepTestCapturePage({ params }: { params: Promise<{ id: 
     completeTest,
     addStep,
     refresh,
+    update,
   } = useStepTest(id)
 
   const [hr, setHr] = useState('')
   const [lactate, setLactate] = useState('')
+  const [restingLactateStr, setRestingLactateStr] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+  
+  // Initialize resting lactate if already saved
+  useEffect(() => {
+    if (stepTest?.resting_lactate !== undefined && !restingLactateStr) {
+      setRestingLactateStr(stepTest.resting_lactate.toString())
+    }
+  }, [stepTest?.resting_lactate])
   
   // Dialog state machine - only ONE dialog at a time
   type DialogType = 'none' | 'cancel' | 'lastStepOk' | 'lastStepLowLactate'
@@ -340,6 +349,50 @@ export default function StepTestCapturePage({ params }: { params: Promise<{ id: 
             />
           ))}
         </div>
+
+        {/* Resting Lactate (Only shown before first step is completed) */}
+        {completedSteps === 0 && (
+          <div className="w-full max-w-sm mb-6 p-4 border rounded-xl bg-muted/30">
+            <label className="text-sm font-medium flex items-center gap-2 mb-2">
+              <Droplet className="size-4 text-blue-500" />
+              Ruhelaktat <span className="text-muted-foreground font-normal">(vor dem Test)</span>
+            </label>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <NumericInput 
+                  value={restingLactateStr} 
+                  onChange={setRestingLactateStr} 
+                  placeholder="z.B. 1.2" 
+                  min={0} max={25} step={0.1} decimal 
+                />
+              </div>
+              <Button 
+                variant="secondary" 
+                onClick={async () => {
+                  setIsSaving(true)
+                  try {
+                    await update({ resting_lactate: parseFloat(restingLactateStr) })
+                    toast.success('Ruhelaktat gespeichert')
+                  } catch (e) {
+                    toast.error('Fehler beim Speichern')
+                  } finally {
+                    setIsSaving(false)
+                  }
+                }}
+                disabled={!restingLactateStr || isSaving || (stepTest.resting_lactate === parseFloat(restingLactateStr))}
+                className="h-10"
+              >
+                Speichern
+              </Button>
+            </div>
+            {stepTest.resting_lactate !== undefined && (
+              <div className="text-xs text-green-600 mt-2 flex items-center gap-1">
+                <Check className="size-3" />
+                Gespeichert: {stepTest.resting_lactate.toFixed(2)} mmol/L
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Input fields */}
         <div className="w-full max-w-sm space-y-4">

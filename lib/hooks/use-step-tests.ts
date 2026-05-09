@@ -186,7 +186,7 @@ export function useStepTest(id: string | undefined) {
     if (!latestData) return
     
     // Run analysis on the LATEST steps from DB
-    const results = analyzeStepTest(latestData.steps)
+    const results = analyzeStepTest(latestData.steps, latestData.resting_lactate)
     
     // Update with completed status and results
     const completed: StepTest = {
