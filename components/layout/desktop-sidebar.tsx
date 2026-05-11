@@ -7,13 +7,19 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useState } from 'react'
-import { useSession } from 'next-auth/react'
+import { useSession, signOut } from 'next-auth/react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 const navItems = [
   { href: '/', icon: Home, label: 'Dashboard' },
   { href: '/trainings', icon: Dumbbell, label: 'Trainings' },
   { href: '/step-test', icon: Activity, label: 'Step Tests' },
-  { href: '/settings', icon: Settings, label: 'Settings' },
 ]
 
 export function DesktopSidebar() {
@@ -35,12 +41,32 @@ export function DesktopSidebar() {
             <span className="font-semibold text-lg tracking-tight">Terskel</span>
           )}
         </Link>
-        <Link href="/settings/profile">
-          <Avatar className="size-8">
-            <AvatarImage src={session?.user?.image || ""} alt={session?.user?.name || "User"} />
-            <AvatarFallback>{session?.user?.name?.charAt(0) || "U"}</AvatarFallback>
-          </Avatar>
-        </Link>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="relative size-8 rounded-full">
+              <Avatar className="size-8">
+                <AvatarImage src={session?.user?.image || ""} alt={session?.user?.name || "User"} />
+                <AvatarFallback>{session?.user?.name?.charAt(0) || "U"}</AvatarFallback>
+              </Avatar>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-56" align="end" forceMount>
+            <DropdownMenuItem asChild>
+              <Link href="/settings/profile" className="w-full cursor-pointer">
+                Profile
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/settings" className="w-full cursor-pointer">
+                Settings
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="cursor-pointer" onClick={() => signOut()}>
+              Log out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Navigation */}

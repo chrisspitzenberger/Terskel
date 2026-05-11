@@ -7,9 +7,12 @@ import { uploadProfilePictureAction } from "@/lib/actions/profile";
 import { toast } from "sonner";
 import { Loader2, Upload } from "lucide-react";
 
+import { useSession } from "next-auth/react";
+
 export function ProfilePictureUpload({ currentImage, name }: { currentImage?: string | null; name?: string | null }) {
   const [isPending, setIsPending] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { update } = useSession();
 
   const fallback = name ? name.charAt(0).toUpperCase() : "U";
 
@@ -32,6 +35,7 @@ export function ProfilePictureUpload({ currentImage, name }: { currentImage?: st
     if (res?.error) {
       toast.error(res.error);
     } else {
+      await update({ image: res.imageUrl });
       toast.success(res?.success || "Profile picture uploaded");
     }
     

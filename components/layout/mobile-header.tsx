@@ -6,7 +6,14 @@ import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { OfflineIndicator } from './bottom-nav'
-import { useSession } from 'next-auth/react'
+import { useSession, signOut } from 'next-auth/react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 interface MobileHeaderProps {
   title: string
@@ -37,12 +44,32 @@ export function MobileHeader({ title, backHref, backLabel, action }: MobileHeade
         </div>
         <div className="flex items-center gap-2">
           {action && <div>{action}</div>}
-          <Link href="/settings/profile">
-            <Avatar className="size-8">
-              <AvatarImage src={session?.user?.image || ""} alt={session?.user?.name || "User"} />
-              <AvatarFallback>{session?.user?.name?.charAt(0) || "U"}</AvatarFallback>
-            </Avatar>
-          </Link>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="relative size-8 rounded-full p-0">
+                <Avatar className="size-8">
+                  <AvatarImage src={session?.user?.image || ""} alt={session?.user?.name || "User"} />
+                  <AvatarFallback>{session?.user?.name?.charAt(0) || "U"}</AvatarFallback>
+                </Avatar>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56" align="end" forceMount>
+              <DropdownMenuItem asChild>
+                <Link href="/settings/profile" className="w-full cursor-pointer">
+                  Profile
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/settings" className="w-full cursor-pointer">
+                  Settings
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="cursor-pointer" onClick={() => signOut()}>
+                Log out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
     </>
@@ -82,12 +109,6 @@ function MobileMenu() {
             className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-accent"
           >
             Step Tests
-          </Link>
-          <Link
-            href="/settings"
-            className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-accent"
-          >
-            Settings
           </Link>
         </nav>
       </SheetContent>

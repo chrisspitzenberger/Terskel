@@ -19,8 +19,11 @@ import { updateNameSchema } from "@/lib/db/schemas";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
+import { useSession } from "next-auth/react";
+
 export function UpdateNameForm({ initialName }: { initialName: string }) {
   const [isPending, setIsPending] = useState(false);
+  const { update } = useSession();
 
   const form = useForm<z.infer<typeof updateNameSchema>>({
     resolver: zodResolver(updateNameSchema),
@@ -39,6 +42,7 @@ export function UpdateNameForm({ initialName }: { initialName: string }) {
     if (res?.error) {
       toast.error(res.error);
     } else {
+      await update({ name: res.name });
       toast.success(res?.success || "Name updated");
     }
   }

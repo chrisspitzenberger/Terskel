@@ -10,6 +10,9 @@ import { revalidatePath } from "next/cache";
 
 import { updateNameSchema, updateEmailSchema, updatePasswordSchema } from "@/lib/db/schemas";
 
+import { writeFile } from "fs/promises";
+import path from "path";
+
 export async function updateNameAction(values: z.infer<typeof updateNameSchema>) {
   const session = await auth();
   if (!session?.user?.id) return { error: "Unauthorized" };
@@ -23,7 +26,7 @@ export async function updateNameAction(values: z.infer<typeof updateNameSchema>)
       .where(eq(users.id, session.user.id));
     
     revalidatePath("/settings/profile");
-    return { success: "Name updated successfully" };
+    return { success: "Name updated successfully", name: validatedFields.data.name };
   } catch (error) {
     console.error(error);
     return { error: "Failed to update name" };
@@ -105,15 +108,21 @@ export async function uploadProfilePictureAction(formData: FormData) {
     if (!file) return { error: "No file provided" };
     
     console.log("Uploading file:", file.name);
-    // Placeholder upload logic
-    const mockUrl = "https://github.com/shadcn.png"; 
+    
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+    const filename = `${session.user.id}-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g, "")}`;
+    const filepath = path.join(process.cwd(), "public/uploads", filename);
+    
+    await writeFile(filepath, buffer);
+    const imageUrl = `/uploads/${filename}`;
 
     await db.update(users)
-      .set({ image: mockUrl })
+      .set({ image: imageUrl })
       .where(eq(users.id, session.user.id));
       
     revalidatePath("/settings/profile");
-    return { success: "Profile picture uploaded successfully" };
+    return { success: "Profile picture uploaded successfully", imageUrl };
   } catch (error) {
     console.error(error);
     return { error: "Failed to upload profile picture" };
