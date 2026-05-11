@@ -4,7 +4,9 @@ import Link from 'next/link'
 import { ChevronLeft, Menu } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { OfflineIndicator } from './bottom-nav'
+import { useSession } from 'next-auth/react'
 
 interface MobileHeaderProps {
   title: string
@@ -14,6 +16,8 @@ interface MobileHeaderProps {
 }
 
 export function MobileHeader({ title, backHref, backLabel, action }: MobileHeaderProps) {
+  const { data: session } = useSession()
+
   return (
     <>
       <OfflineIndicator />
@@ -31,7 +35,15 @@ export function MobileHeader({ title, backHref, backLabel, action }: MobileHeade
           )}
           <h1 className="font-semibold text-lg truncate">{title}</h1>
         </div>
-        {action && <div>{action}</div>}
+        <div className="flex items-center gap-2">
+          {action && <div>{action}</div>}
+          <Link href="/settings/profile">
+            <Avatar className="size-8">
+              <AvatarImage src={session?.user?.image || ""} alt={session?.user?.name || "User"} />
+              <AvatarFallback>{session?.user?.name?.charAt(0) || "U"}</AvatarFallback>
+            </Avatar>
+          </Link>
+        </div>
       </header>
     </>
   )
@@ -49,9 +61,6 @@ function MobileMenu() {
       <SheetContent side="left" className="w-72">
         <SheetHeader>
           <SheetTitle className="flex items-center gap-3">
-            <div className="flex items-center justify-center size-8 rounded-lg bg-primary text-primary-foreground font-bold text-lg">
-              T
-            </div>
             <span>Terskel</span>
           </SheetTitle>
         </SheetHeader>

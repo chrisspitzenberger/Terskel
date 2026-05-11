@@ -1,19 +1,18 @@
-'use client'
-
 import Link from 'next/link'
 import { Plus, Activity, Dumbbell, TrendingUp, Clock, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { BottomNav, OfflineIndicator } from '@/components/layout/bottom-nav'
 import { DesktopSidebar } from '@/components/layout/desktop-sidebar'
-import { useTrainings } from '@/lib/hooks/use-trainings'
-import { useStepTests } from '@/lib/hooks/use-step-tests'
 import { formatDistance, formatDuration, formatPace } from '@/lib/calculations/pace'
-import { Skeleton } from '@/components/ui/skeleton'
+import { getTrainingsAction } from '@/lib/actions/trainings'
+import { getStepTestsAction } from '@/lib/actions/step-tests'
 
-export default function DashboardPage() {
-  const { trainings, loading: trainingsLoading } = useTrainings()
-  const { stepTests, loading: testsLoading } = useStepTests()
+export default async function DashboardPage() {
+  const [trainings, stepTests] = await Promise.all([
+    getTrainingsAction(),
+    getStepTestsAction()
+  ])
 
   const recentTrainings = trainings.slice(0, 3)
   const recentTests = stepTests.slice(0, 2)
@@ -34,8 +33,6 @@ export default function DashboardPage() {
   const weeklyDuration = last7DaysTrainings.reduce((sum, t) => {
     return sum + t.laps.filter(l => l.type === 'effort').reduce((s, l) => s + l.duration_s, 0)
   }, 0)
-
-  const loading = trainingsLoading || testsLoading
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -100,34 +97,26 @@ export default function DashboardPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {loading ? (
-                <div className="grid grid-cols-3 gap-4">
-                  <Skeleton className="h-16" />
-                  <Skeleton className="h-16" />
-                  <Skeleton className="h-16" />
+              <div className="grid grid-cols-3 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-primary">
+                    {last7DaysTrainings.length}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Sessions</div>
                 </div>
-              ) : (
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-primary">
-                      {last7DaysTrainings.length}
-                    </div>
-                    <div className="text-xs text-muted-foreground">Sessions</div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold">
+                    {formatDistance(weeklyDistance)}
                   </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold">
-                      {formatDistance(weeklyDistance)}
-                    </div>
-                    <div className="text-xs text-muted-foreground">Distance</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold">
-                      {formatDuration(weeklyDuration)}
-                    </div>
-                    <div className="text-xs text-muted-foreground">Duration</div>
-                  </div>
+                  <div className="text-xs text-muted-foreground">Distance</div>
                 </div>
-              )}
+                <div className="text-center">
+                  <div className="text-2xl font-bold">
+                    {formatDuration(weeklyDuration)}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Duration</div>
+                </div>
+              </div>
             </CardContent>
           </Card>
 
@@ -145,13 +134,7 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              {loading ? (
-                <div className="space-y-3">
-                  <Skeleton className="h-16" />
-                  <Skeleton className="h-16" />
-                  <Skeleton className="h-16" />
-                </div>
-              ) : recentTrainings.length > 0 ? (
+              {recentTrainings.length > 0 ? (
                 <div className="space-y-3">
                   {recentTrainings.map((training) => {
                     const effortLaps = training.laps.filter(l => l.type === 'effort')
@@ -208,12 +191,7 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent>
-              {loading ? (
-                <div className="space-y-3">
-                  <Skeleton className="h-16" />
-                  <Skeleton className="h-16" />
-                </div>
-              ) : completedTests.length > 0 ? (
+              {completedTests.length > 0 ? (
                 <div className="space-y-3">
                   {completedTests.slice(0, 2).map((test) => (
                     <Link key={test.id} href={`/step-test/${test.id}`}>

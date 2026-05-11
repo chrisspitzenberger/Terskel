@@ -157,3 +157,36 @@ export function stepDataToStepTestStep(step: StepData, paceInSeconds: boolean = 
     lactate: step.lactate_mmol ?? undefined,
   }
 }
+
+// Auth and Profile form schemas
+export const loginSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(1, "Password is required"),
+})
+
+export const registerSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  confirmPassword: z.string().min(6, "Confirm password is required"),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"],
+})
+
+export const updateNameSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+})
+
+export const updateEmailSchema = z.object({
+  email: z.string().email("Invalid email address"),
+})
+
+export const updatePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required"),
+  newPassword: z.string().min(6, "New password must be at least 6 characters"),
+  confirmPassword: z.string().min(6, "Confirm password is required"),
+}).refine((data) => data.newPassword === data.confirmPassword, {
+  message: "New passwords do not match",
+  path: ["confirmPassword"],
+})

@@ -2,7 +2,9 @@ import type { Metadata, Viewport } from 'next'
 import { Inter, JetBrains_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { Toaster } from '@/components/ui/sonner'
+import { ThemeProvider } from '@/components/theme-provider'
 import { ServiceWorkerProvider } from '@/components/providers/service-worker-provider'
+import { SessionProvider } from 'next-auth/react'
 import './globals.css'
 
 const inter = Inter({
@@ -70,13 +72,22 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
+    <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
       <body className="font-sans antialiased bg-background">
-        <ServiceWorkerProvider>
-          {children}
-        </ServiceWorkerProvider>
-        <Toaster />
-        {process.env.NODE_ENV === 'production' && <Analytics />}
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <SessionProvider>
+            <ServiceWorkerProvider>
+              {children}
+            </ServiceWorkerProvider>
+            <Toaster />
+            {process.env.NODE_ENV === 'production' && <Analytics />}
+          </SessionProvider>
+        </ThemeProvider>
       </body>
     </html>
   )

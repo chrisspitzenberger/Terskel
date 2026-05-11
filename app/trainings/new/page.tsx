@@ -33,7 +33,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { BottomNav } from '@/components/layout/bottom-nav'
 import { DesktopSidebar } from '@/components/layout/desktop-sidebar'
 import { MobileHeader } from '@/components/layout/mobile-header'
-import { useTrainings } from '@/lib/hooks/use-trainings'
+import { createTrainingAction } from '@/lib/actions/trainings'
 import { createTrainingFormSchema, type CreateTrainingForm } from '@/lib/db/schemas'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -55,7 +55,6 @@ const ENVIRONMENTS = [
 
 export default function NewTrainingPage() {
   const router = useRouter()
-  const { create } = useTrainings()
 
   const form = useForm<CreateTrainingForm>({
     resolver: zodResolver(createTrainingFormSchema),
@@ -70,7 +69,7 @@ export default function NewTrainingPage() {
 
   const onSubmit = async (data: CreateTrainingForm) => {
     try {
-      const training = await create(data)
+      const training = await createTrainingAction(data)
       toast.success('Training created')
       router.push(`/trainings/${training.id}`)
     } catch (error) {

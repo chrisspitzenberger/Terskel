@@ -8,30 +8,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button"
 import { Settings, Heart, Gauge, Globe, Database, Trash2 } from "lucide-react"
 import { useState } from "react"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
-import { clearAllData } from "@/lib/db/indexed-db"
-
 export default function SettingsPage() {
   const [language, setLanguage] = useState("de")
   const [units, setUnits] = useState("metric")
   const [defaultHrMax, setDefaultHrMax] = useState([185])
   const [autoAnalyze, setAutoAnalyze] = useState(true)
   const [showAdvancedStats, setShowAdvancedStats] = useState(false)
-
-  const handleClearData = async () => {
-    await clearAllData()
-    window.location.reload()
-  }
 
   return (
     <div className="space-y-6">
@@ -166,51 +148,6 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Data Management */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Database className="h-5 w-5" />
-              Daten
-            </CardTitle>
-            <CardDescription>Datenverwaltung und -speicher</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="p-4 bg-muted/50 rounded-lg">
-              <p className="text-sm text-muted-foreground">
-                Alle Daten werden lokal auf diesem Gerat gespeichert. 
-                Cloud-Synchronisation wird in einer zukunftigen Version verfugbar sein.
-              </p>
-            </div>
-
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="destructive" className="w-full">
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Alle Daten loschen
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Alle Daten loschen?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Diese Aktion kann nicht ruckgangig gemacht werden. Alle Trainings und 
-                    Stufentests werden dauerhaft von diesem Gerat geloscht.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-                  <AlertDialogAction 
-                    onClick={handleClearData}
-                    className="bg-destructive text-destructive-foreground"
-                  >
-                    Loschen
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </CardContent>
-        </Card>
 
         {/* About */}
         <Card>

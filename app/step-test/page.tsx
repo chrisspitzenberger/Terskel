@@ -1,15 +1,12 @@
-'use client'
-
 import Link from 'next/link'
 import { Plus, Activity, ChevronRight, Calendar, Play, CheckCircle, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Skeleton } from '@/components/ui/skeleton'
 import { BottomNav } from '@/components/layout/bottom-nav'
 import { DesktopSidebar } from '@/components/layout/desktop-sidebar'
 import { MobileHeader } from '@/components/layout/mobile-header'
-import { useStepTests } from '@/lib/hooks/use-step-tests'
+import { getStepTestsAction } from '@/lib/actions/step-tests'
 import { formatPace } from '@/lib/calculations/pace'
 import { cn } from '@/lib/utils'
 import type { StepTest } from '@/lib/db/schemas'
@@ -21,8 +18,8 @@ const statusConfig: Record<StepTest['status'], { label: string; color: string; i
   cancelled: { label: 'Cancelled', color: 'bg-muted text-muted-foreground', icon: XCircle },
 }
 
-export default function StepTestListPage() {
-  const { stepTests, loading } = useStepTests()
+export default async function StepTestListPage() {
+  const stepTests = await getStepTestsAction()
 
   const completedTests = stepTests.filter(t => t.status === 'completed')
   const inProgressTests = stepTests.filter(t => t.status === 'in_progress' || t.status === 'setup')
@@ -95,13 +92,7 @@ export default function StepTestListPage() {
           )}
 
           {/* Completed Tests */}
-          {loading ? (
-            <div className="space-y-3">
-              <Skeleton className="h-8 w-32" />
-              <Skeleton className="h-24" />
-              <Skeleton className="h-24" />
-            </div>
-          ) : completedTests.length > 0 ? (
+          {completedTests.length > 0 ? (
             <div className="space-y-4">
               <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                 <Calendar className="size-4" />

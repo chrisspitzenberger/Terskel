@@ -3,11 +3,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import {
-  getAllStepTests,
-  getStepTest,
-  saveStepTest,
-  deleteStepTest,
-} from '../db/indexed-db'
+  getStepTestsAction,
+  getStepTestAction,
+  createStepTestAction,
+  updateStepTestAction,
+  deleteStepTestAction,
+} from '../actions/step-tests'
 import type { StepTest, StepTestProtocol, StepData } from '../db/schemas'
 import { generateSmartProtocol, getTrainingPaces } from '../calculations/vdot'
 import { analyzeStepTest } from '../calculations/lactate-threshold'
@@ -21,7 +22,7 @@ export function useStepTests() {
   const refresh = useCallback(async () => {
     try {
       setLoading(true)
-      const data = await getAllStepTests()
+      const data = await getStepTestsAction()
       setStepTests(data)
       setError(null)
     } catch (err) {
@@ -61,24 +62,21 @@ export function useStepTests() {
       completed: false,
     }))
     
-    const stepTest: StepTest = {
-      id: uuidv4(),
+    const stepTestToCreate = {
       date: now.split('T')[0],
       title: `Step Test - ${new Date().toLocaleDateString()}`,
       protocol,
       steps,
-      status: 'setup',
-      createdAt: now,
-      updatedAt: now,
+      status: 'setup' as const,
     }
     
-    await saveStepTest(stepTest)
+    const created = await createStepTestAction(stepTestToCreate)
     await refresh()
-    return stepTest
+    return created
   }, [refresh])
 
   const remove = useCallback(async (id: string) => {
-    await deleteStepTest(id)
+    await deleteStepTestAction(id)
     await refresh()
   }, [refresh])
 
@@ -106,7 +104,7 @@ export function useStepTest(id: string | undefined) {
 
     try {
       setLoading(true)
-      const data = await getStepTest(id)
+      const data = await getStepTestAction(id)
       setStepTest(data || null)
       setError(null)
     } catch (err) {
@@ -123,12 +121,12 @@ export function useStepTest(id: string | undefined) {
   const update = useCallback(async (updates: Partial<StepTest>) => {
     if (!stepTest) return
     
+    await updateStepTestAction(stepTest.id, updates)
     const updated: StepTest = {
       ...stepTest,
       ...updates,
       updatedAt: new Date().toISOString(),
     }
-    await saveStepTest(updated)
     setStepTest(updated)
     return updated
   }, [stepTest])
@@ -162,8 +160,6 @@ export function useStepTest(id: string | undefined) {
       }
     })
     
-    // Just save the step - do NOT auto-complete test
-    // The capture page handles when to call completeTest
     return update({ steps: updatedSteps })
   }, [stepTest, update])
 
@@ -181,22 +177,22 @@ export function useStepTest(id: string | undefined) {
   const completeTest = useCallback(async () => {
     if (!stepTest) return
     
-    // IMPORTANT: Refresh from DB to get the latest data including the last step
-    const latestData = await getStepTest(stepTest.id)
+    const latestData = await getStepTestAction(stepTest.id)
     if (!latestData) return
     
-    // Run analysis on the LATEST steps from DB
     const results = analyzeStepTest(latestData.steps, latestData.resting_lactate)
     
-    // Update with completed status and results
+    await updateStepTestAction(stepTest.id, {
+      status: 'completed',
+      results: results || undefined,
+    })
+    
     const completed: StepTest = {
       ...latestData,
       status: 'completed',
       results: results || undefined,
       updatedAt: new Date().toISOString(),
     }
-    
-    await saveStepTest(completed)
     setStepTest(completed)
     return completed
   }, [stepTest])
@@ -207,21 +203,20 @@ export function useStepTest(id: string | undefined) {
   }, [stepTest, update])
 
   const remove = useCallback(async (testId: string) => {
-    await deleteStepTest(testId)
+    await deleteStepTestAction(testId)
     setStepTest(null)
   }, [])
 
   const addStep = useCallback(async () => {
     if (!stepTest) return
     
-    // Get the last step to calculate next pace
     const lastStep = stepTest.steps[stepTest.steps.length - 1]
-    const paceIncrement = stepTest.protocol.pace_increment_s / 60 // Convert to min/km
-    const newPace = lastStep.target_pace_min_km - paceIncrement // Faster pace
+    const paceIncrement = stepTest.protocol.pace_increment_s / 60
+    const newPace = lastStep.target_pace_min_km - paceIncrement
     
     const newStep: StepData = {
       step_number: stepTest.steps.length + 1,
-      target_pace_min_km: Math.max(newPace, 2.5), // Min 2:30/km
+      target_pace_min_km: Math.max(newPace, 2.5),
       end_hr: null,
       lactate_mmol: null,
       completed: false,
@@ -232,7 +227,6 @@ export function useStepTest(id: string | undefined) {
     })
   }, [stepTest, update])
 
-  // Get current step (first incomplete step)
   const currentStep = stepTest?.steps.find(s => !s.completed && !s.skipped) || null
   const currentStepIndex = currentStep ? stepTest!.steps.indexOf(currentStep) : -1
   const completedSteps = stepTest?.steps.filter(s => s.completed).length || 0

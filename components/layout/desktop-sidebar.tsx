@@ -5,7 +5,9 @@ import { usePathname } from 'next/navigation'
 import { Home, Dumbbell, Activity, Settings, ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useState } from 'react'
+import { useSession } from 'next-auth/react'
 
 const navItems = [
   { href: '/', icon: Home, label: 'Dashboard' },
@@ -16,6 +18,7 @@ const navItems = [
 
 export function DesktopSidebar() {
   const pathname = usePathname()
+  const { data: session } = useSession()
   const [collapsed, setCollapsed] = useState(false)
 
   return (
@@ -25,15 +28,18 @@ export function DesktopSidebar() {
         collapsed ? 'w-16' : 'w-64'
       )}
     >
-      {/* Logo */}
-      <div className="flex items-center h-16 px-4 border-b">
+      {/* Logo & Profile */}
+      <div className="flex items-center justify-between h-16 px-4 border-b">
         <Link href="/" className="flex items-center gap-3">
-          <div className="flex items-center justify-center size-8 rounded-lg bg-primary text-primary-foreground font-bold text-lg">
-            T
-          </div>
           {!collapsed && (
             <span className="font-semibold text-lg tracking-tight">Terskel</span>
           )}
+        </Link>
+        <Link href="/settings/profile">
+          <Avatar className="size-8">
+            <AvatarImage src={session?.user?.image || ""} alt={session?.user?.name || "User"} />
+            <AvatarFallback>{session?.user?.name?.charAt(0) || "U"}</AvatarFallback>
+          </Avatar>
         </Link>
       </div>
 
