@@ -4,27 +4,32 @@ import { signIn } from "@/auth";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/drizzle-schema";
 import { eq } from "drizzle-orm";
+import { AuthError } from "next-auth";
+import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { AuthError } from "next-auth";
 
 import { loginSchema, registerSchema } from "@/lib/db/schemas";
 
-export async function loginAction(values: z.infer<typeof loginSchema>) {
-  const validatedFields = loginSchema.safeParse(values);
+export async function loginAction(formData: FormData) {
+  const email = formData.get("email") as string;
+  const password = formData.get("password") as string;
+
+  const validatedFields = loginSchema.safeParse({ email, password });
 
   if (!validatedFields.success) {
     return { error: "Invalid fields" };
   }
 
-  const { email, password } = validatedFields.data;
-
   try {
+    revalidatePath("/"); // Clear cache for all routes starting from root
+    
     await signIn("credentials", {
-      email,
-      password,
-      redirectTo: "/",
+      email: validatedFields.data.email,
+      password: validatedFields.data.password,
+      redirect: false,
     });
+    
     return { success: true };
   } catch (error) {
     if (error instanceof AuthError) {
@@ -39,27 +44,32 @@ export async function loginAction(values: z.infer<typeof loginSchema>) {
   }
 }
 
-export async function registerAction(values: z.infer<typeof registerSchema>) {
-  const validatedFields = registerSchema.safeParse(values);
+export async function registerAction(formData: FormData) {
+  const name = formData.get("name") as string;
+  const email = formData.get("email") as string;
+  const password = formData.get("password") as string;
+  const confirmPassword = formData.get("confirmPassword") as string;
+
+  const validatedFields = registerSchema.safeParse({ name, email, password, confirmPassword });
 
   if (!validatedFields.success) {
     return { error: "Invalid fields" };
   }
 
-  const { email, password, name } = validatedFields.data;
+  const data = validatedFields.data;
 
   try {
-    const existingUser = await db.select().from(users).where(eq(users.email, email)).then(res => res[0]);
+    const existingUser = await db.select().from(users).where(eq(users.email, data.email)).then(res => res[0]);
 
     if (existingUser) {
       return { error: "Email already in use!" };
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(data.password, 10);
 
     await db.insert(users).values({
-      name,
-      email,
+      name: data.name,
+      email: data.email,
       password: hashedPassword,
     });
 

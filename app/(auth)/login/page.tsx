@@ -14,14 +14,13 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { loginAction } from "@/lib/actions/auth";
+import { signIn } from "next-auth/react";
 import { loginSchema } from "@/lib/db/schemas";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
+
 export default function LoginPage() {
-  const router = useRouter();
   const [isPending, setIsPending] = useState(false);
 
   const form = useForm<z.infer<typeof loginSchema>>({
@@ -34,19 +33,29 @@ export default function LoginPage() {
 
   async function onSubmit(values: z.infer<typeof loginSchema>) {
     setIsPending(true);
+
     try {
-      const res = await loginAction(values);
+      // Use client-side signIn from next-auth/react.
+      // With redirect: false, it returns a result object instead of redirecting,
+      // so we can check for errors before navigating.
+      const res = await signIn("credentials", {
+        email: values.email,
+        password: values.password,
+        redirect: false,
+      });
+
       if (res?.error) {
-        toast.error(res.error);
+        toast.error("Invalid credentials.");
         setIsPending(false);
-      } else {
-        toast.success("Logged in successfully!");
+        return;
       }
-    } catch (e: unknown) {
-      // Re-throw Next.js redirect errors so navigation works
-      if (e instanceof Error && (e as Error & { digest?: string }).digest?.startsWith("NEXT_REDIRECT")) {
-        throw e;
-      }
+
+      toast.success("Logged in successfully!");
+      // Full page reload ensures server re-renders layout.tsx with fresh session
+      // (auth() in layout.tsx will now have the cookie and return full user data).
+      // This is the same approach next-auth/react signIn uses internally when redirect: true.
+      window.location.href = "/";
+    } catch {
       toast.error("An unexpected error occurred.");
       setIsPending(false);
     }
@@ -105,3 +114,4 @@ export default function LoginPage() {
     </div>
   );
 }
+

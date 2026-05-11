@@ -45,7 +45,7 @@ export function DesktopSidebar() {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="relative size-8 rounded-full">
               <Avatar className="size-8">
-                <AvatarImage src={session?.user?.image || ""} alt={session?.user?.name || "User"} />
+                <AvatarImage src={session?.user?.image || undefined} alt={session?.user?.name || "User"} />
                 <AvatarFallback>{session?.user?.name?.charAt(0) || "U"}</AvatarFallback>
               </Avatar>
             </Button>

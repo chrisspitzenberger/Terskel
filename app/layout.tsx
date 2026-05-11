@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { ThemeProvider } from '@/components/theme-provider'
 import { ServiceWorkerProvider } from '@/components/providers/service-worker-provider'
 import { SessionProvider } from 'next-auth/react'
+import { auth } from '@/auth'
 import './globals.css'
 
 const inter = Inter({
@@ -66,11 +67,13 @@ export const viewport: Viewport = {
   ],
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const session = await auth();
+
   return (
     <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
       <body className="font-sans antialiased bg-background">
@@ -80,7 +83,7 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <SessionProvider>
+          <SessionProvider session={session}>
             <ServiceWorkerProvider>
               {children}
             </ServiceWorkerProvider>

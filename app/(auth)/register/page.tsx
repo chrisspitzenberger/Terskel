@@ -37,8 +37,15 @@ export default function RegisterPage() {
 
   async function onSubmit(values: z.infer<typeof registerSchema>) {
     setIsPending(true);
+
+    const formData = new FormData();
+    formData.append("name", values.name);
+    formData.append("email", values.email);
+    formData.append("password", values.password);
+    formData.append("confirmPassword", values.confirmPassword);
+
     try {
-      const res = await registerAction(values);
+      const res = await registerAction(formData);
       setIsPending(false);
 
       if (res?.error) {
