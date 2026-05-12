@@ -36,7 +36,8 @@ export interface ThresholdPoint {
 export interface CalculationStep {
   step: string
   description: string
-  formula?: string
+  formula?: string           // Abstract formula (e.g. "Baseline = min(La₁, La₂, ...)")
+  formulaFilled?: string     // Formula with actual values substituted
   inputs?: Record<string, number | string>
   result?: number | string
 }
@@ -82,6 +83,13 @@ interface DataPoint {
   pace: number // seconds per km
   lactate: number
   hr?: number
+}
+
+// Helper: format pace from seconds/km to MM:SS for calculation log
+function formatPaceFromSecondsForLog(secondsPerKm: number): string {
+  const minutes = Math.floor(secondsPerKm / 60)
+  const seconds = Math.round(secondsPerKm % 60)
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
 // ============================================================================
@@ -407,9 +415,70 @@ function fitLine(points: { x: number; y: number }[]): { m: number; b: number } {
   return { m, b }
 }
 
-function detectLT1Baseline(data: DataPoint[], baseline: number): { speed: number; lactate: number } | null {
+export interface CurveFitResult {
+  evalFn: (v: number) => number;
+  method: 'moddmax-poly' | 'moddmax-exp';
+  rSquared: number;
+  coefficients: { a: number; b: number; c: number; d?: number };
+  equation: string;
+}
+
+function fitLactateCurve(data: DataPoint[]): CurveFitResult | null {
+  if (data.length < 4) return null
+  
+  const sorted = [...data].sort((a, b) => a.speed - b.speed)
+  const first = sorted[0]
+  const last = sorted[sorted.length - 1]
+  
+  const polyCoeffs = fitPolynomial3(sorted)
+  if (polyCoeffs) {
+    const polyR2 = calcRSquared(sorted, v => evalPolynomial(polyCoeffs, v))
+    const polyValid = isPolynomialPlausible(polyCoeffs, first.speed, last.speed)
+    if (polyR2 >= 0.90 && polyValid) {
+      return {
+        evalFn: v => evalPolynomial(polyCoeffs, v),
+        rSquared: polyR2,
+        method: 'moddmax-poly',
+        coefficients: polyCoeffs,
+        equation: `La(v) = ${polyCoeffs.a.toExponential(4)}·v³ + ${polyCoeffs.b.toFixed(4)}·v² + ${polyCoeffs.c.toFixed(4)}·v + ${polyCoeffs.d.toFixed(4)}`,
+      }
+    }
+  }
+  
+  const expCoeffs = fitExponential(sorted)
+  if (expCoeffs) {
+    const expR2 = calcRSquared(sorted, v => evalExponential(expCoeffs, v))
+    if (expR2 >= 0.85) {
+      return {
+        evalFn: v => evalExponential(expCoeffs, v),
+        rSquared: expR2,
+        method: 'moddmax-exp',
+        coefficients: { a: expCoeffs.a, b: expCoeffs.b, c: expCoeffs.c },
+        equation: `La(v) = ${expCoeffs.a.toFixed(4)} + ${expCoeffs.b.toFixed(4)}·e^(${expCoeffs.c.toFixed(4)}·v)`,
+      }
+    }
+  }
+  
+  return null
+}
+
+function detectLT1Baseline(data: DataPoint[], baseline: number, curveFit?: CurveFitResult | null): { speed: number; lactate: number } | null {
   const sorted = [...data].sort((a, b) => a.speed - b.speed)
   const threshold = baseline + 0.4
+  
+  if (curveFit) {
+    const minSpeed = sorted[0].speed
+    const maxSpeed = sorted[sorted.length - 1].speed
+    const steps = 1000
+    const stepSize = (maxSpeed - minSpeed) / steps
+    
+    for (let i = 0; i <= steps; i++) {
+      const speed = minSpeed + i * stepSize
+      if (curveFit.evalFn(speed) >= threshold) {
+        return { speed, lactate: threshold }
+      }
+    }
+  }
   
   for (let i = 0; i < sorted.length - 1; i++) {
     if (sorted[i].lactate < threshold && sorted[i + 1].lactate >= threshold) {
@@ -433,82 +502,25 @@ function detectLT1Baseline(data: DataPoint[], baseline: number): { speed: number
 /**
  * ModDmax Method (Modified Dmax - Cheng et al. 1992)
  * 
- * This is the PRIMARY method for LT2 detection.
- * 
  * Algorithm:
- * 1. Fit a curve (polynomial or exponential) to the lactate data
- * 2. Draw a secant line from first to last data point
- * 3. Find the point on the FITTED CURVE with maximum perpendicular distance to the secant
- * 4. That point is LT2
- * 
- * The 4.0 mmol/L OBLA threshold is ONLY used when:
- * - Curve fitting completely fails (R² < 0.80)
- * - Dmax point is geometrically impossible
+ * 1. Draw a secant line from LT1 to last data point
+ * 2. Find the point on the FITTED CURVE with maximum perpendicular distance to the secant
+ * 3. That point is LT2
  */
-function detectLT2ModDmax(data: DataPoint[]): {
-  speed: number
-  lactate: number
-  method: 'moddmax-poly' | 'moddmax-exp'
-  rSquared: number
-} | null {
-  if (data.length < 4) return null
-  
+function detectLT2ModDmax(
+  data: DataPoint[],
+  curveFit: CurveFitResult,
+  lt1: { speed: number, lactate: number }
+): { speed: number; lactate: number; method: 'moddmax-poly' | 'moddmax-exp'; rSquared: number } | null {
   const sorted = [...data].sort((a, b) => a.speed - b.speed)
-  const first = sorted[0]
   const last = sorted[sorted.length - 1]
   
-  // Try polynomial fit first
-  const polyCoeffs = fitPolynomial3(sorted)
-  let polyR2 = 0
-  let evalFn: (v: number) => number
-  let useMethod: 'moddmax-poly' | 'moddmax-exp' = 'moddmax-poly'
-  
-  if (polyCoeffs) {
-    polyR2 = calcRSquared(sorted, v => evalPolynomial(polyCoeffs, v))
-    const polyValid = isPolynomialPlausible(polyCoeffs, first.speed, last.speed)
-    
-    if (polyR2 >= 0.90 && polyValid) {
-      evalFn = v => evalPolynomial(polyCoeffs, v)
-    } else {
-      // Try exponential
-      const expCoeffs = fitExponential(sorted)
-      if (expCoeffs) {
-        const expR2 = calcRSquared(sorted, v => evalExponential(expCoeffs, v))
-        if (expR2 >= 0.85) {
-          evalFn = v => evalExponential(expCoeffs, v)
-          polyR2 = expR2
-          useMethod = 'moddmax-exp'
-        } else {
-          return null // Fitting failed completely
-        }
-      } else {
-        return null
-      }
-    }
-  } else {
-    // No polynomial, try exponential
-    const expCoeffs = fitExponential(sorted)
-    if (expCoeffs) {
-      polyR2 = calcRSquared(sorted, v => evalExponential(expCoeffs, v))
-      if (polyR2 >= 0.85) {
-        evalFn = v => evalExponential(expCoeffs, v)
-        useMethod = 'moddmax-exp'
-      } else {
-        return null
-      }
-    } else {
-      return null
-    }
-  }
-  
-  // Secant line from first to last point
+  const first = lt1
   const dx = last.speed - first.speed
   const dy = last.lactate - first.lactate
   
-  if (dx === 0) return null
+  if (dx <= 0) return null
   
-  // Secant line: y = first.lactate + (dy/dx) * (x - first.speed)
-  // Or in form Ax + By + C = 0: dy*x - dx*y + (dx*first.lactate - dy*first.speed) = 0
   const lineA = dy
   const lineB = -dx
   const lineC = dx * first.lactate - dy * first.speed
@@ -516,7 +528,6 @@ function detectLT2ModDmax(data: DataPoint[]): {
   
   if (lineDenom === 0) return null
   
-  // Sample 100 points along the FITTED CURVE
   const numSamples = 100
   const step = dx / numSamples
   
@@ -526,17 +537,12 @@ function detectLT2ModDmax(data: DataPoint[]): {
   
   for (let i = 1; i < numSamples; i++) {
     const speed = first.speed + i * step
-    const lactate = evalFn!(speed)
+    const lactate = curveFit.evalFn(speed)
     
-    // Calculate perpendicular distance from curve point to secant line
-    // Distance = |A*x + B*y + C| / sqrt(A² + B²)
     const distance = Math.abs(lineA * speed + lineB * lactate + lineC) / lineDenom
-    
-    // Check if this point is ABOVE the secant line (curve should bulge upward)
     const secantY = first.lactate + (dy / dx) * (speed - first.speed)
     const isAboveSecant = lactate > secantY
     
-    // Only consider points where curve is above the secant (positive curvature)
     if (isAboveSecant && distance > maxDistance) {
       maxDistance = distance
       dmaxSpeed = speed
@@ -544,13 +550,10 @@ function detectLT2ModDmax(data: DataPoint[]): {
     }
   }
   
-  // If no point found above secant, the curve doesn't have proper shape
-  // This can happen with very flat or linear data
   if (dmaxSpeed === 0) {
-    // Try without the "above secant" requirement - just find max distance
     for (let i = 1; i < numSamples; i++) {
       const speed = first.speed + i * step
-      const lactate = evalFn!(speed)
+      const lactate = curveFit.evalFn(speed)
       const distance = Math.abs(lineA * speed + lineB * lactate + lineC) / lineDenom
       
       if (distance > maxDistance) {
@@ -566,8 +569,8 @@ function detectLT2ModDmax(data: DataPoint[]): {
   return {
     speed: dmaxSpeed,
     lactate: dmaxLactate,
-    method: useMethod,
-    rSquared: polyR2,
+    method: curveFit.method,
+    rSquared: curveFit.rSquared,
   }
 }
 
@@ -653,25 +656,53 @@ export function detectThresholds(steps: StepTestStep[], restingLactate?: number)
     }
   }
   
+  // ========== Curve Fitting ==========
+  const curveFit = fitLactateCurve(data)
+  let method: ThresholdAnalysis['method'] = curveFit?.method || 'moddmax-poly'
+  let rSquared = curveFit?.rSquared
+  let lt1Method = 'curve-intersection'
+
   // ========== LT1 Detection ==========
-  let lt1Result = detectLT1LogLog(data)
+  // ALWAYS use the fitted curve to find the exact speed where La(v) = baseline + 0.4
+  // The Log-Log breakpoint is only used as a validation fallback
+  let lt1Result: { speed: number; lactate: number } | null = null
+
+  if (curveFit) {
+    // Primary: solve curve intersection at baseline + 0.4
+    lt1Result = detectLT1Baseline(data, baseline, curveFit)
+    lt1Method = 'curve-intersection'
+  }
   
-  // Validate LT1 - should be in lower 60% of speed range with lactate < 2.5
-  if (lt1Result) {
-    const speedRange = data[data.length - 1].speed - data[0].speed
-    const maxLt1Speed = data[0].speed + 0.6 * speedRange
+  if (!lt1Result) {
+    // Fallback 1: Log-Log breakpoint
+    lt1Result = detectLT1LogLog(data)
+    lt1Method = 'log-log'
     
-    if (lt1Result.speed > maxLt1Speed || lt1Result.lactate > 2.5) {
+    // Validate Log-Log result
+    if (lt1Result) {
+      const speedRange = data[data.length - 1].speed - data[0].speed
+      const maxLt1Speed = data[0].speed + 0.6 * speedRange
+      if (lt1Result.speed > maxLt1Speed || lt1Result.lactate > 2.5) {
+        lt1Result = detectLT1Baseline(data, baseline) // linear interpolation fallback
+        lt1Method = 'linear-interpolation'
+      }
+    } else {
+      // Fallback 2: linear interpolation
       lt1Result = detectLT1Baseline(data, baseline)
+      lt1Method = 'linear-interpolation'
     }
-  } else {
-    lt1Result = detectLT1Baseline(data, baseline)
   }
   
   // ========== LT2 Detection (ModDmax PRIMARY!) ==========
-  let lt2Result: { speed: number; lactate: number; method?: string; rSquared?: number } | null = detectLT2ModDmax(data)
-  let method: ThresholdAnalysis['method'] = (lt2Result?.method as any) || 'moddmax-poly'
-  let rSquared = lt2Result?.rSquared
+  let lt2Result: { speed: number; lactate: number; method?: string; rSquared?: number } | null = null
+  
+  if (curveFit && lt1Result) {
+    lt2Result = detectLT2ModDmax(data, curveFit, lt1Result)
+    if (lt2Result) {
+      method = lt2Result.method as any
+      rSquared = lt2Result.rSquared
+    }
+  }
   
   // Only fall back to OBLA if ModDmax COMPLETELY failed
   if (!lt2Result) {
@@ -737,38 +768,61 @@ export function detectThresholds(steps: StepTestStep[], restingLactate?: number)
   }
   
   // Build calculation log for full transparency
+  // Compute secant parameters for log display
+  const secantStart = lt1Result ? { speed: lt1Result.speed, lactate: lt1Result.lactate } : data[0]
+  const secantEnd = data[data.length - 1]
+  const secantSlope = secantStart && secantEnd && (secantEnd.speed - secantStart.speed) !== 0
+    ? (secantEnd.lactate - secantStart.lactate) / (secantEnd.speed - secantStart.speed)
+    : 0
+  const secantIntercept = secantStart
+    ? secantStart.lactate - secantSlope * secantStart.speed
+    : 0
+
   const calculationLog: CalculationLog = {
     inputData: data.map(d => ({ speed: Math.round(d.speed * 100) / 100, lactate: d.lactate, hr: d.hr })),
-    curveFitting: rSquared ? {
-      method: method.includes('poly') ? 'polynomial-3' : 'exponential',
-      coefficients: {}, // Would need to pass from detectLT2ModDmax
-      rSquared: rSquared,
-      equation: method.includes('poly') 
-        ? 'La(v) = a·v³ + b·v² + c·v + d' 
-        : 'La(v) = a + b·e^(c·v)',
+    curveFitting: curveFit ? {
+      method: curveFit.method.includes('poly') ? 'polynomial-3' : 'exponential',
+      coefficients: curveFit.coefficients,
+      rSquared: curveFit.rSquared,
+      equation: curveFit.equation,
     } : null,
     lt1Detection: {
-      method: 'Log-Log Breakpoint / Baseline + 0.4',
+      method: lt1Method === 'curve-intersection'
+        ? 'Kurven-Schnittpunkt bei Baseline + 0.4'
+        : lt1Method === 'log-log'
+          ? 'Log-Log Breakpoint (Beaver et al.)'
+          : 'Lineare Interpolation (Fallback)',
       steps: [
         {
           step: '1. Baseline-Berechnung',
           description: 'Minimum aller Laktatwerte als Baseline',
           formula: 'Baseline = min(La₁, La₂, ..., Laₙ)',
-          inputs: { 'Laktatwerte': data.map(d => d.lactate.toFixed(2)).join(', ') },
-          result: baseline.toFixed(2) + ' mmol/L',
+          formulaFilled: `Baseline = min(${data.map(d => d.lactate.toFixed(2)).join(', ')})`,
+          result: `= ${baseline.toFixed(2)} mmol/L`,
         },
         {
           step: '2. LT1-Schwellenwert',
           description: 'Baseline plus 0.4 mmol/L (Norwegisches Modell)',
           formula: 'LT1_threshold = Baseline + 0.4',
-          inputs: { 'Baseline': baseline.toFixed(2) },
-          result: (baseline + 0.4).toFixed(2) + ' mmol/L',
+          formulaFilled: `LT1_threshold = ${baseline.toFixed(2)} + 0.4 = ${(baseline + 0.4).toFixed(2)}`,
+          result: `= ${(baseline + 0.4).toFixed(2)} mmol/L`,
         },
         {
-          step: '3. LT1-Punkt finden',
-          description: 'Erster Punkt der Kurve, an dem Laktat >= LT1_threshold',
-          formula: 'LT1 = erster Punkt mit La >= ' + (baseline + 0.4).toFixed(2),
-          result: lt1Result ? `${lt1Result.speed.toFixed(2)} km/h bei ${lt1Result.lactate.toFixed(2)} mmol/L` : 'Nicht gefunden',
+          step: '3. LT1-Punkt auf Kurve finden',
+          description: lt1Method === 'curve-intersection'
+            ? `Exaktes v lösen, bei dem die gefittete Kurve den Wert ${(baseline + 0.4).toFixed(2)} erreicht`
+            : lt1Method === 'log-log'
+              ? 'Breakpoint in der Log-Log-Transformation der Laktatkurve'
+              : `Lineare Interpolation zwischen Messpunkten bei La = ${(baseline + 0.4).toFixed(2)}`,
+          formula: lt1Method === 'curve-intersection'
+            ? 'Löse: La(v) = LT1_threshold'
+            : 'LT1 = erster Punkt mit La ≥ LT1_threshold',
+          formulaFilled: lt1Method === 'curve-intersection' && curveFit
+            ? `Löse: ${curveFit.equation} = ${(baseline + 0.4).toFixed(2)}`
+            : `LT1 = erster Punkt mit La ≥ ${(baseline + 0.4).toFixed(2)}`,
+          result: lt1Result
+            ? `→ v = ${lt1Result.speed.toFixed(2)} km/h (${formatPaceFromSecondsForLog(3600 / lt1Result.speed)}/km) bei La = ${lt1Result.lactate.toFixed(2)} mmol/L`
+            : 'Nicht gefunden',
         },
       ],
       finalValue: lt1Result ? { speed: lt1Result.speed, lactate: lt1Result.lactate } : null,
@@ -778,36 +832,57 @@ export function detectThresholds(steps: StepTestStep[], restingLactate?: number)
       steps: method !== 'obla-fallback' ? [
         {
           step: '1. Kurvenanpassung',
-          description: 'Polynom 3. Grades an die Laktatdaten anpassen',
-          formula: 'La(v) = a·v³ + b·v² + c·v + d',
-          result: rSquared ? `R² = ${rSquared.toFixed(4)}` : 'Nicht berechnet',
+          description: curveFit
+            ? `${curveFit.method.includes('poly') ? 'Polynom 3. Grades' : 'Exponentialfunktion'} an ${data.length} Datenpunkte angepasst`
+            : 'Kurvenanpassung',
+          formula: curveFit?.method.includes('poly')
+            ? 'La(v) = a·v³ + b·v² + c·v + d'
+            : 'La(v) = a + b·e^(c·v)',
+          formulaFilled: curveFit?.equation,
+          result: curveFit ? `R² = ${curveFit.rSquared.toFixed(4)} (${(curveFit.rSquared * 100).toFixed(1)}%)` : 'Nicht berechnet',
         },
         {
-          step: '2. Sekantenlinie definieren',
-          description: 'Gerade vom ersten zum letzten Messpunkt',
-          formula: 'Sekante: y = m·x + n',
-          inputs: { 
-            'Startpunkt': `(${data[0].speed.toFixed(1)}, ${data[0].lactate.toFixed(2)})`,
-            'Endpunkt': `(${data[data.length-1].speed.toFixed(1)}, ${data[data.length-1].lactate.toFixed(2)})`,
+          step: '2. ModDmax-Sekante definieren',
+          description: 'Gerade vom LT1-Punkt zum letzten Messpunkt (ModDmax, NICHT vom ersten Messpunkt!)',
+          formula: 'Sekante: y = m·x + n, wobei m = (La_last - La_LT1) / (v_last - v_LT1)',
+          formulaFilled: `Sekante: y = ${secantSlope.toFixed(4)}·x + ${secantIntercept.toFixed(4)}`,
+          inputs: {
+            'Startpunkt (LT1)': `(${secantStart.speed.toFixed(2)} km/h, ${secantStart.lactate.toFixed(2)} mmol/L)`,
+            'Endpunkt (letzter Messpunkt)': `(${secantEnd.speed.toFixed(2)} km/h, ${secantEnd.lactate.toFixed(2)} mmol/L)`,
+            'Steigung m': `(${secantEnd.lactate.toFixed(2)} - ${secantStart.lactate.toFixed(2)}) / (${secantEnd.speed.toFixed(2)} - ${secantStart.speed.toFixed(2)}) = ${secantSlope.toFixed(4)}`,
           },
         },
         {
           step: '3. Dmax finden',
-          description: 'Maximaler senkrechter Abstand zwischen Kurve und Sekante',
-          formula: 'd = |a·x + b·y + c| / √(a² + b²)',
-          result: lt2Result ? `Dmax bei ${lt2Result.speed.toFixed(2)} km/h` : 'Nicht gefunden',
+          description: 'Maximaler senkrechter Abstand zwischen gefitteter Kurve und ModDmax-Sekante',
+          formula: 'd(v) = |A·v + B·La(v) + C| / √(A² + B²)',
+          formulaFilled: lt2Result
+            ? `d(${lt2Result.speed.toFixed(2)}) = max. Abstand auf Kurve zwischen v = ${secantStart.speed.toFixed(2)} und v = ${secantEnd.speed.toFixed(2)}`
+            : undefined,
+          result: lt2Result
+            ? `→ Dmax bei v = ${lt2Result.speed.toFixed(2)} km/h (${formatPaceFromSecondsForLog(3600 / lt2Result.speed)}/km)`
+            : 'Nicht gefunden',
         },
         {
           step: '4. Laktat bei Dmax',
-          description: 'Laktatwert an der Dmax-Position auf der gefitteten Kurve',
-          result: lt2Result ? `${lt2Result.lactate.toFixed(2)} mmol/L` : 'Nicht berechnet',
+          description: 'Laktatwert an der Dmax-Position auf der gefitteten Kurve ablesen',
+          formula: 'La_LT2 = La(v_dmax)',
+          formulaFilled: lt2Result && curveFit
+            ? `La(${lt2Result.speed.toFixed(2)}) = ${lt2Result.lactate.toFixed(2)}`
+            : undefined,
+          result: lt2Result ? `= ${lt2Result.lactate.toFixed(2)} mmol/L` : 'Nicht berechnet',
         },
       ] : [
         {
           step: '1. OBLA Fallback',
-          description: 'Fixe Schwelle bei 4.0 mmol/L (OBLA = Onset of Blood Lactate Accumulation)',
-          formula: 'LT2 = Punkt mit La = 4.0 mmol/L',
-          result: lt2Result ? `${lt2Result.speed.toFixed(2)} km/h` : 'Nicht gefunden',
+          description: 'ModDmax-Methode fehlgeschlagen. Fixe Schwelle bei 4.0 mmol/L (OBLA = Onset of Blood Lactate Accumulation)',
+          formula: 'LT2 = v bei La(v) = 4.0 mmol/L',
+          formulaFilled: lt2Result
+            ? `LT2 = v bei La(v) = 4.0 → v = ${lt2Result.speed.toFixed(2)} km/h`
+            : undefined,
+          result: lt2Result
+            ? `→ v = ${lt2Result.speed.toFixed(2)} km/h (${formatPaceFromSecondsForLog(3600 / lt2Result.speed)}/km)`
+            : 'Nicht gefunden',
         },
       ],
       dmaxPoint: lt2Result && method !== 'obla-fallback' ? { speed: lt2Result.speed, distance: 0 } : undefined,
@@ -816,13 +891,15 @@ export function detectThresholds(steps: StepTestStep[], restingLactate?: number)
     validation: [
       {
         step: 'LT2 > LT1 Pruefung',
-        description: 'LT2 muss bei hoeherer Geschwindigkeit als LT1 liegen',
-        result: lt1 && lt2 ? (lt2.speed > lt1.speed ? 'OK' : 'Korrigiert') : 'N/A',
+        description: lt1 && lt2
+          ? `LT2 (${lt2.speed.toFixed(2)} km/h) > LT1 (${lt1.speed.toFixed(2)} km/h)`
+          : 'LT2 muss bei hoeherer Geschwindigkeit als LT1 liegen',
+        result: lt1 && lt2 ? (lt2.speed > lt1.speed ? '✓ OK' : '✗ Korrigiert') : 'N/A',
       },
       {
         step: 'Konfidenz-Bewertung',
-        description: 'Basierend auf R², Methodik und Warnungen',
-        result: confidence,
+        description: `Basierend auf R²=${rSquared?.toFixed(4) ?? 'N/A'}, Methode=${method}, Warnungen=${warnings.length}`,
+        result: confidence === 'high' ? '✓ Hoch' : confidence === 'medium' ? '⚠ Mittel' : '✗ Niedrig',
       },
     ],
   }

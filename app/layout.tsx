@@ -79,8 +79,8 @@ export default async function RootLayout({
       <body className="font-sans antialiased bg-background">
         <ThemeProvider
           attribute="class"
-          defaultTheme="system"
-          enableSystem
+          defaultTheme="light"
+          enableSystem={false}
           disableTransitionOnChange
         >
           <SessionProvider session={session}>
