@@ -392,8 +392,8 @@ export function AnalysisChart({ steps, analysis }: AnalysisChartProps) {
                 {analysis && (
                   <div className="p-3 bg-muted/50 rounded-lg space-y-1">
                     <p><strong>Verwendete Methode:</strong> {
-                      analysis.method === 'dmax-poly' ? 'Dmax (Polynom 3. Grades)' :
-                      analysis.method === 'dmax-exp' ? 'Dmax (Exponentialfunktion)' :
+                      analysis.method === 'moddmax-poly' ? 'Dmax (Polynom 3. Grades)' :
+                      analysis.method === 'moddmax-exp' ? 'Dmax (Exponentialfunktion)' :
                       analysis.method === 'log-log' ? 'Log-Log Breakpoint' :
                       'Fixe Schwelle (4.0 mmol/L)'
                     }</p>

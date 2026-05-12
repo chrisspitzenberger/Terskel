@@ -12,6 +12,8 @@ import {
   updateLapAction,
   updateTrainingAction
 } from '../actions/trainings'
+import type { Training, Lap, CreateTrainingForm } from '../db/schemas'
+import { calculatePace } from '../calculations/pace'
 
 export function useTrainings() {
   const [trainings, setTrainings] = useState<Training[]>([])

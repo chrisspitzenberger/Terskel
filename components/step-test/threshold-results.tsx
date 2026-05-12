@@ -340,7 +340,15 @@ export function ThresholdResults({ analysis }: ThresholdResultsProps) {
                           <p className="font-medium">{step.step}</p>
                           <p className="text-muted-foreground">{step.description}</p>
                           {step.formula && <p className="mt-0.5"><code className="bg-green-100 px-1 rounded text-[10px]">{step.formula}</code></p>}
-                          {step.result && <p className="mt-0.5 text-green-700 font-medium">→ {step.result}</p>}
+                          {step.formulaFilled && <p className="mt-0.5"><code className="bg-green-200/70 px-1 rounded text-[10px] font-semibold">{step.formulaFilled}</code></p>}
+                          {step.inputs && (
+                            <div className="mt-0.5 ml-2 text-[10px] text-muted-foreground">
+                              {Object.entries(step.inputs).map(([k, v]) => (
+                                <p key={k}>{k}: {v}</p>
+                              ))}
+                            </div>
+                          )}
+                          {step.result && <p className="mt-0.5 text-green-700 font-medium">{String(step.result)}</p>}
                         </div>
                       ))}
                     </div>
@@ -355,7 +363,15 @@ export function ThresholdResults({ analysis }: ThresholdResultsProps) {
                           <p className="font-medium">{step.step}</p>
                           <p className="text-muted-foreground">{step.description}</p>
                           {step.formula && <p className="mt-0.5"><code className="bg-red-100 px-1 rounded text-[10px]">{step.formula}</code></p>}
-                          {step.result && <p className="mt-0.5 text-red-700 font-medium">→ {step.result}</p>}
+                          {step.formulaFilled && <p className="mt-0.5"><code className="bg-red-200/70 px-1 rounded text-[10px] font-semibold">{step.formulaFilled}</code></p>}
+                          {step.inputs && (
+                            <div className="mt-0.5 ml-2 text-[10px] text-muted-foreground">
+                              {Object.entries(step.inputs).map(([k, v]) => (
+                                <p key={k}>{k}: {v}</p>
+                              ))}
+                            </div>
+                          )}
+                          {step.result && <p className="mt-0.5 text-red-700 font-medium">{String(step.result)}</p>}
                         </div>
                       ))}
                     </div>
