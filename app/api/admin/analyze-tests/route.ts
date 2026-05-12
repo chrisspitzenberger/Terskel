@@ -97,16 +97,16 @@ export async function POST(request: NextRequest) {
           },
           ergebnis: {
             lt1: {
-              pace: analysisResult.lt1_pace_min_km ? formatPace(analysisResult.lt1_pace_min_km) : null,
-              pace_min_km: analysisResult.lt1_pace_min_km,
-              geschwindigkeit_kmh: analysisResult.lt1_pace_min_km ? 60 / analysisResult.lt1_pace_min_km : null,
+              pace: analysisResult.lt1_pace ? formatPace(analysisResult.lt1_pace) : null,
+              pace_min_km: analysisResult.lt1_pace,
+              geschwindigkeit_kmh: analysisResult.lt1_pace ? 60 / analysisResult.lt1_pace : null,
               herzfrequenz: analysisResult.lt1_hr,
               laktat_mmol: detailedAnalysis.lt1?.lactate ?? null,
             },
             lt2: {
-              pace: analysisResult.lt2_pace_min_km ? formatPace(analysisResult.lt2_pace_min_km) : null,
-              pace_min_km: analysisResult.lt2_pace_min_km,
-              geschwindigkeit_kmh: analysisResult.lt2_pace_min_km ? 60 / analysisResult.lt2_pace_min_km : null,
+              pace: analysisResult.lt2_pace ? formatPace(analysisResult.lt2_pace) : null,
+              pace_min_km: analysisResult.lt2_pace,
+              geschwindigkeit_kmh: analysisResult.lt2_pace ? 60 / analysisResult.lt2_pace : null,
               herzfrequenz: analysisResult.lt2_hr,
               laktat_mmol: detailedAnalysis.lt2?.lactate ?? null,
             },

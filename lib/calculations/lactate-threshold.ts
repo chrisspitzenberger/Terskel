@@ -669,8 +669,8 @@ export function detectThresholds(steps: StepTestStep[], restingLactate?: number)
   }
   
   // ========== LT2 Detection (ModDmax PRIMARY!) ==========
-  let lt2Result = detectLT2ModDmax(data)
-  let method: ThresholdAnalysis['method'] = lt2Result?.method || 'moddmax-poly'
+  let lt2Result: { speed: number; lactate: number; method?: string; rSquared?: number } | null = detectLT2ModDmax(data)
+  let method: ThresholdAnalysis['method'] = (lt2Result?.method as any) || 'moddmax-poly'
   let rSquared = lt2Result?.rSquared
   
   // Only fall back to OBLA if ModDmax COMPLETELY failed
@@ -678,7 +678,7 @@ export function detectThresholds(steps: StepTestStep[], restingLactate?: number)
     warnings.push('ModDmax-Methode fehlgeschlagen - OBLA 4.0 mmol/L als Fallback verwendet')
     const oblaResult = detectLT2OBLA(data)
     if (oblaResult) {
-      lt2Result = oblaResult
+      lt2Result = { ...oblaResult, method: 'obla-fallback', rSquared: 0 }
       method = 'obla-fallback'
     }
   }
@@ -688,7 +688,7 @@ export function detectThresholds(steps: StepTestStep[], restingLactate?: number)
     // Try OBLA as a rescue
     const oblaResult = detectLT2OBLA(data)
     if (oblaResult && oblaResult.speed > lt1Result.speed) {
-      lt2Result = oblaResult
+      lt2Result = { ...oblaResult, method: 'obla-fallback', rSquared: 0 }
       method = 'obla-fallback'
       warnings.push('LT2 mit OBLA korrigiert (ModDmax ergab LT2 <= LT1)')
     } else {
@@ -696,7 +696,7 @@ export function detectThresholds(steps: StepTestStep[], restingLactate?: number)
       const maxSpeed = data[data.length - 1].speed
       const lt2Speed = lt1Result.speed + 0.6 * (maxSpeed - lt1Result.speed)
       const lt2Lactate = linearInterpolate(data, lt2Speed)
-      lt2Result = { speed: lt2Speed, lactate: lt2Lactate }
+      lt2Result = { speed: lt2Speed, lactate: lt2Lactate, method: 'obla-fallback', rSquared: 0 }
       method = 'obla-fallback'
       warnings.push('LT2 interpoliert (keine geometrische Loesung gefunden)')
     }
@@ -983,19 +983,22 @@ export function analyzeStepTest(steps: StepData[], restingLactate?: number): Ste
   
   // Convert to StepTestResults format
   const zoneResults: TrainingZone[] = zones.map((z, i) => ({
-    zone_number: i + 1,
+    zone: (i + 1) as 1 | 2 | 3 | 4 | 5,
     name: z.name,
-    min_pace_min_km: z.paceRange.max / 60, // Convert back to min/km
-    max_pace_min_km: z.paceRange.min / 60,
-    min_hr: z.hrRange?.min ?? null,
-    max_hr: z.hrRange?.max ?? null,
+    pace_range: [z.paceRange.max / 60, z.paceRange.min / 60],
+    hr_range: [z.hrRange?.min ?? 0, z.hrRange?.max ?? 0],
+    description: z.description,
   }))
   
   return {
-    lt1_pace_min_km: analysis.lt1 ? analysis.lt1.pace / 60 : null,
-    lt1_hr: analysis.lt1?.heartRate ?? null,
-    lt2_pace_min_km: analysis.lt2 ? analysis.lt2.pace / 60 : null,
-    lt2_hr: analysis.lt2?.heartRate ?? null,
-    training_zones: zoneResults,
+    lt1_pace: analysis.lt1 ? analysis.lt1.pace / 60 : 0,
+    lt2_pace: analysis.lt2 ? analysis.lt2.pace / 60 : 0,
+    lt1_hr: analysis.lt1?.heartRate ?? 0,
+    lt2_hr: analysis.lt2?.heartRate ?? 0,
+    lt1_lactate: analysis.lt1?.lactate ?? 0,
+    lt2_lactate: analysis.lt2?.lactate ?? 0,
+    max_hr_reached: Math.max(...stepsForAnalysis.map(s => s.heartRate ?? 0)),
+    max_lactate_reached: Math.max(...stepsForAnalysis.map(s => s.lactate ?? 0)),
+    zones: zoneResults,
   }
 }

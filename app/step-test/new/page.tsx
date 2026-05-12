@@ -27,8 +27,7 @@ import { BottomNav } from '@/components/layout/bottom-nav'
 import { DesktopSidebar } from '@/components/layout/desktop-sidebar'
 import { MobileHeader } from '@/components/layout/mobile-header'
 import { ProtocolPreview } from '@/components/step-test/protocol-preview'
-import { useProtocolGenerator } from '@/lib/hooks/use-step-tests'
-import { createStepTestAction } from '@/lib/actions/step-tests'
+import { useStepTests, useProtocolGenerator } from '@/lib/hooks/use-step-tests'
 import { calculateVDOT, getVDOTLevel, formatVDOT } from '@/lib/calculations/vdot'
 import { formatPace, parsePace, parseDuration } from '@/lib/calculations/pace'
 import { VDOT_DISTANCES } from '@/lib/db/schemas'
@@ -39,6 +38,7 @@ type WizardStep = 'environment' | 'mode' | 'manual' | 'smart' | 'preview'
 
 export default function NewStepTestPage() {
   const router = useRouter()
+  const { create } = useStepTests()
   const { protocol, paces, generateManualProtocol, generateFromVDOT, reset } = useProtocolGenerator()
 
   const [step, setStep] = useState<WizardStep>('environment')
@@ -94,7 +94,7 @@ export default function NewStepTestPage() {
     
     setIsCreating(true)
     try {
-      const test = await createStepTestAction(protocol)
+      const test = await create(protocol)
       toast.success('Step test created')
       router.push(`/step-test/${test.id}/capture`)
     } catch (error) {
