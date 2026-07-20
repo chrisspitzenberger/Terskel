@@ -17,8 +17,11 @@ export function calculatePace(distance_m: number, duration_s: number): number {
  */
 export function formatPace(pace_min_km: number): string {
   if (pace_min_km <= 0 || !isFinite(pace_min_km)) return '--:--'
-  const minutes = Math.floor(pace_min_km)
-  const seconds = Math.round((pace_min_km - minutes) * 60)
+  // Round to whole seconds first - rounding minutes and seconds separately
+  // produces values like "5:60"
+  const totalSeconds = Math.round(pace_min_km * 60)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
@@ -109,8 +112,9 @@ export function speedToPace(speed_kmh: number): number {
  */
 export function formatPaceFromSecondsPerKm(seconds_per_km: number): string {
   if (seconds_per_km <= 0 || !isFinite(seconds_per_km)) return '--:--'
-  const minutes = Math.floor(seconds_per_km / 60)
-  const secs = Math.round(seconds_per_km % 60)
+  const totalSeconds = Math.round(seconds_per_km)
+  const minutes = Math.floor(totalSeconds / 60)
+  const secs = totalSeconds % 60
   return `${minutes}:${secs.toString().padStart(2, '0')}`
 }
 

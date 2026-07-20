@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ThresholdAnalysis } from "@/lib/calculations/lactate-threshold"
+import { predictRaces } from "@/lib/calculations/race-prediction"
 import { Activity, TrendingUp, AlertTriangle, CheckCircle2, HelpCircle, Info, ChevronDown } from "lucide-react"
 import {
   Tooltip,
@@ -26,8 +27,9 @@ interface ThresholdResultsProps {
 
 // Helper to format pace from seconds per km
 function formatPaceFromSeconds(secondsPerKm: number): string {
-  const minutes = Math.floor(secondsPerKm / 60)
-  const seconds = Math.round(secondsPerKm % 60)
+  const totalSeconds = Math.round(secondsPerKm)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
@@ -82,7 +84,7 @@ export function ThresholdResults({ analysis }: ThresholdResultsProps) {
               <TooltipContent className="max-w-xs">
                 <p className="text-sm">
                   {analysis.method.includes('moddmax')
-                    ? 'Die ModDmax-Methode findet den Punkt der maximalen Abweichung von einer Geraden zwischen erstem und letztem Messpunkt. Sie gilt als genaueste Methode zur Bestimmung des MLSS.'
+                    ? 'Die ModDmax-Methode findet den Punkt der maximalen Abweichung von einer Geraden zwischen dem LT1-Punkt und dem letzten Messpunkt. Sie gilt als genaueste Methode zur Bestimmung des MLSS.'
                     : 'Die Fixwert-Methode verwendet einen festen Laktatwert von 4.0 mmol/L als Schwelle (OBLA-Methode nach Sjödin & Jacobs).'}
                 </p>
               </TooltipContent>
@@ -413,49 +415,19 @@ export function ThresholdResults({ analysis }: ThresholdResultsProps) {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
-              {/* 5K */}
-              <div className="text-center p-2 sm:p-3 bg-muted/50 rounded-lg">
-                <p className="text-[10px] sm:text-xs text-muted-foreground uppercase mb-0.5 sm:mb-1">5 km</p>
-                <p className="text-lg sm:text-xl font-bold">
-                  {formatRaceTime(5, analysis.lt2.speed * 1.02)}
-                </p>
-                <p className="text-[10px] sm:text-xs text-muted-foreground">
-                  {formatPaceFromSeconds(3600 / (analysis.lt2.speed * 1.02))}/km
-                </p>
-              </div>
-              {/* 10K */}
-              <div className="text-center p-2 sm:p-3 bg-muted/50 rounded-lg">
-                <p className="text-[10px] sm:text-xs text-muted-foreground uppercase mb-0.5 sm:mb-1">10 km</p>
-                <p className="text-lg sm:text-xl font-bold">
-                  {formatRaceTime(10, analysis.lt2.speed * 0.98)}
-                </p>
-                <p className="text-[10px] sm:text-xs text-muted-foreground">
-                  {formatPaceFromSeconds(3600 / (analysis.lt2.speed * 0.98))}/km
-                </p>
-              </div>
-              {/* Half Marathon */}
-              <div className="text-center p-2 sm:p-3 bg-muted/50 rounded-lg">
-                <p className="text-[10px] sm:text-xs text-muted-foreground uppercase mb-0.5 sm:mb-1">Halbmarathon</p>
-                <p className="text-lg sm:text-xl font-bold">
-                  {formatRaceTime(21.0975, analysis.lt2.speed * 0.92)}
-                </p>
-                <p className="text-[10px] sm:text-xs text-muted-foreground">
-                  {formatPaceFromSeconds(3600 / (analysis.lt2.speed * 0.92))}/km
-                </p>
-              </div>
-              {/* Marathon */}
-              <div className="text-center p-2 sm:p-3 bg-muted/50 rounded-lg">
-                <p className="text-[10px] sm:text-xs text-muted-foreground uppercase mb-0.5 sm:mb-1">Marathon</p>
-                <p className="text-lg sm:text-xl font-bold">
-                  {formatRaceTime(42.195, analysis.lt2.speed * 0.85)}
-                </p>
-                <p className="text-[10px] sm:text-xs text-muted-foreground">
-                  {formatPaceFromSeconds(3600 / (analysis.lt2.speed * 0.85))}/km
-                </p>
-              </div>
+              {predictRaces(analysis.lt2.speed).map(race => (
+                <div key={race.label} className="text-center p-2 sm:p-3 bg-muted/50 rounded-lg">
+                  <p className="text-[10px] sm:text-xs text-muted-foreground uppercase mb-0.5 sm:mb-1">{race.label}</p>
+                  <p className="text-lg sm:text-xl font-bold">{formatRaceTime(race.timeSeconds)}</p>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground">
+                    {formatPaceFromSeconds(race.paceSecondsPerKm)}/km
+                  </p>
+                </div>
+              ))}
             </div>
             <p className="text-[10px] sm:text-xs text-muted-foreground mt-2 sm:mt-3 text-center">
-              Diese Prognosen sind Schätzungen basierend auf typischen Abfällen von der Schwellenleistung
+              Hochgerechnet von deiner Schwellenleistung über die Ausdauerformel nach Riegel.
+              Die Marathonzeit setzt entsprechendes Umfangstraining voraus.
             </p>
           </CardContent>
         </Card>
@@ -464,14 +436,15 @@ export function ThresholdResults({ analysis }: ThresholdResultsProps) {
   )
 }
 
-// Helper to format race time from distance and speed
-function formatRaceTime(distanceKm: number, speedKmh: number): string {
-  const hours = distanceKm / speedKmh
-  const totalMinutes = hours * 60
-  const h = Math.floor(hours)
-  const m = Math.floor(totalMinutes % 60)
-  const s = Math.round((totalMinutes * 60) % 60)
-  
+// Helper to format a race time given in seconds
+function formatRaceTime(seconds: number): string {
+  // Round to whole seconds first - rounding each unit separately produces
+  // values like "1:03:60"
+  const total = Math.round(seconds)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+
   if (h > 0) {
     return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
   }

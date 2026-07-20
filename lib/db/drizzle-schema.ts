@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, boolean, real, jsonb, pgEnum, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, integer, boolean, real, jsonb, pgEnum, primaryKey, doublePrecision, uniqueIndex } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
 
 export const lapTypeEnum = pgEnum('lap_type', ['effort', 'rest']);
@@ -58,6 +58,104 @@ export const stepTestSteps = pgTable("step_test_steps", {
   completed: boolean("completed").default(false).notNull(),
   skipped: boolean("skipped").default(false),
 });
+
+// =============================================================================
+// Strava Activities
+// =============================================================================
+
+export const activities = pgTable("activities", {
+  // --- Identity ---
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id")
+    .references(() => users.id, { onDelete: "cascade" })
+    .notNull(),
+  externalStravaId: text("external_strava_id").notNull(),
+
+  // --- Core Activity Data ---
+  name: text("name").notNull(),
+  description: text("description"),
+  type: text("type"),                               // 'Run', 'Ride', 'Swim', etc.
+  sportType: text("sport_type"),                     // 'Run', 'TrailRun', 'MountainBikeRide', etc.
+  workoutType: integer("workout_type"),              // Strava workout_type code
+
+  // --- Metrics ---
+  distance: doublePrecision("distance"),             // meters
+  movingTime: integer("moving_time"),                // seconds
+  elapsedTime: integer("elapsed_time"),              // seconds
+  totalElevationGain: real("total_elevation_gain"),  // meters
+  averageSpeed: real("average_speed"),               // m/s
+  maxSpeed: real("max_speed"),                       // m/s
+  averageHeartrate: real("average_heartrate"),        // bpm
+  maxHeartrate: integer("max_heartrate"),             // bpm
+  averageCadence: real("average_cadence"),            // rpm or spm
+  averageWatts: real("average_watts"),                // watts
+  maxWatts: integer("max_watts"),                     // watts
+  weightedAverageWatts: integer("weighted_average_watts"), // normalized power
+  kilojoules: real("kilojoules"),                    // kJ
+  calories: real("calories"),                        // kcal
+  deviceWatts: boolean("device_watts"),              // true = real power meter
+  hasHeartrate: boolean("has_heartrate"),
+
+  // --- Elevation ---
+  elevHigh: real("elev_high"),                       // meters
+  elevLow: real("elev_low"),                         // meters
+
+  // --- Environment ---
+  averageTemp: real("average_temp"),                 // °C
+  timezone: text("timezone"),
+
+  // --- Time ---
+  startDate: timestamp("start_date"),                // UTC
+  startDateLocal: timestamp("start_date_local"),     // local time
+
+  // --- Map / GPS ---
+  polyline: text("polyline"),                        // encoded polyline
+  summaryPolyline: text("summary_polyline"),          // simplified polyline
+  startLatlng: jsonb("start_latlng"),                // [lat, lng]
+  endLatlng: jsonb("end_latlng"),                    // [lat, lng]
+
+  // --- Stats ---
+  prCount: integer("pr_count"),
+  sufferScore: integer("suffer_score"),               // Strava relative effort
+  achievementCount: integer("achievement_count"),
+
+  // --- Device / Gear ---
+  gearId: text("gear_id"),                           // Strava gear ID
+  deviceName: text("device_name"),                   // e.g. "Garmin Forerunner 265"
+
+  // --- Flags ---
+  trainer: boolean("trainer"),
+  commute: boolean("commute"),
+  manual: boolean("manual"),
+  private: boolean("private"),
+  flagged: boolean("flagged"),
+
+  // --- Complex / Nested Data (JSONB) ---
+  splitsMetric: jsonb("splits_metric"),               // StravaSplit[]
+  stravaLaps: jsonb("strava_laps"),                   // StravaLap[]  (named differently to avoid conflict with existing `laps` table)
+  bestEfforts: jsonb("best_efforts"),                 // StravaBestEffort[]
+  segmentEfforts: jsonb("segment_efforts"),           // StravaSegmentEffort[]
+
+  // --- Streams (time-series data) ---
+  heartrateStream: jsonb("heartrate_stream"),         // number[]
+  cadenceStream: jsonb("cadence_stream"),             // number[]
+  wattsStream: jsonb("watts_stream"),                 // number[]
+  velocityStream: jsonb("velocity_stream"),           // number[] (m/s)
+  altitudeStream: jsonb("altitude_stream"),           // number[]
+  distanceStream: jsonb("distance_stream"),           // number[] (cumulative meters)
+  timeStream: jsonb("time_stream"),                   // number[] (seconds from start)
+  latlngStream: jsonb("latlng_stream"),               // [lat, lng][]
+  gradeStream: jsonb("grade_stream"),                 // number[] (%)
+  tempStream: jsonb("temp_stream"),                   // number[] (°C)
+
+  // --- Timestamps ---
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("activities_external_strava_id_idx").on(table.externalStravaId),
+]);
 
 export const users = pgTable("user", {
   id: text("id")

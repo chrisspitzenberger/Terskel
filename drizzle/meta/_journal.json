@@ -15,6 +15,13 @@
       "when": 1778481107945,
       "tag": "0001_bumpy_daimon_hellstrom",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778619042509,
+      "tag": "0002_neat_phalanx",
+      "breakpoints": true
     }
   ]
 }

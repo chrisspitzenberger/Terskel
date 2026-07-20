@@ -43,7 +43,6 @@ interface PlausibilityWarning {
 function checkStepPlausibility(
   hr: number | null,
   lactate: number | null,
-  stepNumber: number,
   previousSteps: { hr: number | null; lactate: number | null }[]
 ): PlausibilityWarning[] {
   const warnings: PlausibilityWarning[] = []
@@ -62,11 +61,22 @@ function checkStepPlausibility(
   if (lactate !== null) {
     if (lactate < 0.5) warnings.push({ type: 'warning', message: 'Laktat unter 0.5 mmol/L ist ungewoehnlich' })
     if (lactate > 20) warnings.push({ type: 'warning', message: 'Laktat ueber 20 mmol/L - Eingabe pruefen' })
-    
-    // Only warn about lactate drops AFTER step 3 (tolerate initial dip)
-    // And only if drop is significant (> 0.3 mmol/L)
-    if (prevStep?.lactate && stepNumber > 3 && lactate < prevStep.lactate - 0.3) {
-      warnings.push({ type: 'warning', message: `Laktat faellt (${prevStep.lactate.toFixed(1)} -> ${lactate.toFixed(1)})` })
+
+    // A falling value early in the test is normal (warm-up lactate clearing).
+    // It only becomes suspicious once the rise has actually started - i.e. the
+    // previous step already sits clearly above the lowest value measured so
+    // far. A fixed "from step 3 onwards" rule misses dips that run longer.
+    const previousLactates = previousSteps
+      .map(s => s.lactate)
+      .filter((l): l is number => l !== null && l !== undefined)
+
+    if (prevStep?.lactate != null && previousLactates.length > 0) {
+      const lowestSoFar = Math.min(...previousLactates)
+      const riseStarted = prevStep.lactate - lowestSoFar > 0.4
+
+      if (riseStarted && prevStep.lactate - lactate > 0.3) {
+        warnings.push({ type: 'warning', message: `Laktat faellt (${prevStep.lactate.toFixed(1)} -> ${lactate.toFixed(1)})` })
+      }
     }
   }
   
@@ -144,7 +154,7 @@ export default function StepTestCapturePage({ params }: { params: Promise<{ id: 
     const prev = stepTest.steps
       .filter(s => s.completed && !s.skipped)
       .map(s => ({ hr: s.end_hr, lactate: s.lactate_mmol }))
-    return checkStepPlausibility(hrVal, lacVal, currentStep.step_number, prev)
+    return checkStepPlausibility(hrVal, lacVal, prev)
   }, [hr, lactate, stepTest, currentStep])
 
   // Handle completing current step
