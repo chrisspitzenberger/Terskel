@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { auth } from '@/auth'
 import { analyzeStepTest, detectThresholds, calculateTrainingZones } from '@/lib/calculations/lactate-threshold'
 import type { StepData } from '@/lib/db/schemas'
 import type { StepTestStep } from '@/lib/db/schemas'
@@ -46,6 +47,13 @@ function convertToStepData(inputs: TestInput[]): StepData[] {
 }
 
 export async function POST(request: NextRequest) {
+  // The middleware matcher in proxy.ts excludes /api entirely, so the
+  // authorized() callback never runs here - the check has to be explicit.
+  const session = await auth()
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   try {
     const scenarios: TestScenario[] = await request.json()
     
