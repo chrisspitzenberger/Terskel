@@ -14,3 +14,15 @@ node_modules
 .next/
 .DS_Store
 .vercel
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# User uploads
+public/uploads/*
+!public/uploads/.gitkeep
+
+# Build
+*.tsbuildinfo

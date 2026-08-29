@@ -87,8 +87,9 @@ interface DataPoint {
 
 // Helper: format pace from seconds/km to MM:SS for calculation log
 function formatPaceFromSecondsForLog(secondsPerKm: number): string {
-  const minutes = Math.floor(secondsPerKm / 60)
-  const seconds = Math.round(secondsPerKm % 60)
+  const totalSeconds = Math.round(secondsPerKm)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
@@ -223,103 +224,99 @@ interface ExponentialCoeffs {
   a: number // constant offset
   b: number // amplitude
   c: number // growth rate
+  vRef: number // speeds are centred on this to keep e^(c·Δv) in a safe range
 }
 
 /**
- * Fit exponential model: La(v) = a + b * e^(c*v)
+ * Fit exponential model: La(v) = a + b * e^(c*(v - vRef))
+ *
+ * For a fixed growth rate c the model is linear in a and b, so c is scanned
+ * over a grid and the remaining two coefficients are solved exactly by least
+ * squares for each candidate.
  */
 function fitExponential(data: DataPoint[]): ExponentialCoeffs | null {
   if (data.length < 3) return null
-  
+
   const sorted = [...data].sort((a, b) => a.speed - b.speed)
-  const first = sorted[0]
-  const last = sorted[sorted.length - 1]
-  
-  // Initial estimates
-  let a = Math.max(0.5, first.lactate - 0.5)
-  let b = 0.1
-  let c = 0.1
-  
-  // Estimate c from the data range
-  if (last.lactate > first.lactate && last.lactate > a) {
-    c = Math.log((last.lactate - a + 0.1) / Math.max(0.1, first.lactate - a + 0.1)) / (last.speed - first.speed)
-    c = Math.max(0.01, Math.min(0.5, c))
-  }
-  
-  // Gradient descent (20 iterations)
-  for (let iter = 0; iter < 20; iter++) {
-    let gradA = 0, gradB = 0, gradC = 0
-    
+  const vRef = sorted[0].speed
+  const speedRange = sorted[sorted.length - 1].speed - vRef
+  if (speedRange <= 0) return null
+
+  const n = data.length
+  let best: ExponentialCoeffs | null = null
+  let bestResidual = Infinity
+
+  const gridSize = 400
+  for (let i = 0; i <= gridSize; i++) {
+    const c = 0.01 + (i / gridSize) * 0.79
+
+    let sumE = 0, sumE2 = 0, sumY = 0, sumEY = 0
     for (const p of data) {
-      const expTerm = Math.exp(Math.min(c * p.speed, 10)) // Prevent overflow
-      const predicted = a + b * expTerm
-      const error = predicted - p.lactate
-      
-      gradA += error
-      gradB += error * expTerm
-      gradC += error * b * p.speed * expTerm
+      const e = Math.exp(c * (p.speed - vRef))
+      sumE += e
+      sumE2 += e * e
+      sumY += p.lactate
+      sumEY += e * p.lactate
     }
-    
-    const lr = 0.0005 / data.length
-    a -= lr * gradA
-    b -= lr * gradB
-    c -= lr * gradC
-    
-    a = Math.max(0, a)
-    b = Math.max(0.001, b)
-    c = Math.max(0.001, Math.min(0.8, c))
+
+    const denom = n * sumE2 - sumE * sumE
+    if (Math.abs(denom) < 1e-12) continue
+
+    const b = (n * sumEY - sumE * sumY) / denom
+    const a = (sumY - b * sumE) / n
+
+    // The curve has to rise with speed and must not predict negative lactate.
+    if (b <= 0 || a < 0) continue
+
+    let residual = 0
+    for (const p of data) {
+      const predicted = a + b * Math.exp(c * (p.speed - vRef))
+      residual += (p.lactate - predicted) ** 2
+    }
+
+    if (residual < bestResidual) {
+      bestResidual = residual
+      best = { a, b, c, vRef }
+    }
   }
-  
-  return { a, b, c }
+
+  return best
 }
 
 function evalExponential(coeffs: ExponentialCoeffs, v: number): number {
-  return coeffs.a + coeffs.b * Math.exp(Math.min(coeffs.c * v, 10))
+  return coeffs.a + coeffs.b * Math.exp(Math.min(coeffs.c * (v - coeffs.vRef), 50))
 }
 
 // ============================================================================
 // INTERPOLATION FOR VISUALIZATION
 // ============================================================================
 
+/**
+ * Curve for the chart. Uses the SAME fit as the threshold detection so the
+ * plotted line and the LT1/LT2 markers can never disagree.
+ */
 export function generateSmoothCurve(
   data: DataPoint[],
   numPoints: number = 50
 ): { speed: number; lactate: number; hr?: number }[] {
   if (data.length < 2) return data.map(d => ({ speed: d.speed, lactate: d.lactate, hr: d.hr }))
-  
+
   const sorted = [...data].sort((a, b) => a.speed - b.speed)
   const minSpeed = sorted[0].speed
   const maxSpeed = sorted[sorted.length - 1].speed
-  
-  // Try polynomial fit
-  const polyCoeffs = fitPolynomial3(sorted)
-  const polyR2 = polyCoeffs ? calcRSquared(sorted, v => evalPolynomial(polyCoeffs, v)) : 0
-  const polyValid = polyCoeffs && isPolynomialPlausible(polyCoeffs, minSpeed, maxSpeed)
-  
-  const usePolynomial = polyCoeffs && polyR2 >= 0.90 && polyValid
-  
-  // Fallback to exponential
-  const expCoeffs = !usePolynomial ? fitExponential(sorted) : null
-  
+
+  const curveFit = fitLactateCurve(sorted)
+
   const curve: { speed: number; lactate: number; hr?: number }[] = []
   const step = (maxSpeed - minSpeed) / (numPoints - 1)
-  
+
   for (let i = 0; i < numPoints; i++) {
     const speed = minSpeed + i * step
-    
-    let lactate: number
-    if (usePolynomial && polyCoeffs) {
-      lactate = evalPolynomial(polyCoeffs, speed)
-    } else if (expCoeffs) {
-      lactate = evalExponential(expCoeffs, speed)
-    } else {
-      lactate = linearInterpolate(sorted, speed)
-    }
-    
+    const lactate = curveFit ? curveFit.evalFn(speed) : linearInterpolate(sorted, speed)
     const hr = linearInterpolateHr(sorted, speed)
     curve.push({ speed, lactate: Math.max(0, lactate), hr })
   }
-  
+
   return curve
 }
 
@@ -454,7 +451,7 @@ function fitLactateCurve(data: DataPoint[]): CurveFitResult | null {
         rSquared: expR2,
         method: 'moddmax-exp',
         coefficients: { a: expCoeffs.a, b: expCoeffs.b, c: expCoeffs.c },
-        equation: `La(v) = ${expCoeffs.a.toFixed(4)} + ${expCoeffs.b.toFixed(4)}·e^(${expCoeffs.c.toFixed(4)}·v)`,
+        equation: `La(v) = ${expCoeffs.a.toFixed(4)} + ${expCoeffs.b.toFixed(4)}·e^(${expCoeffs.c.toFixed(4)}·(v − ${expCoeffs.vRef.toFixed(2)}))`,
       }
     }
   }
@@ -462,24 +459,43 @@ function fitLactateCurve(data: DataPoint[]): CurveFitResult | null {
   return null
 }
 
+/**
+ * Find the speed at which the curve rises through baseline + 0.4.
+ *
+ * Lactate frequently starts elevated (warm-up) and dips before the aerobic
+ * rise begins. Only the ASCENDING crossing after the curve minimum marks LT1 -
+ * searching from the slowest step upwards would return the warm-up value.
+ */
 function detectLT1Baseline(data: DataPoint[], baseline: number, curveFit?: CurveFitResult | null): { speed: number; lactate: number } | null {
   const sorted = [...data].sort((a, b) => a.speed - b.speed)
   const threshold = baseline + 0.4
-  
+
   if (curveFit) {
     const minSpeed = sorted[0].speed
     const maxSpeed = sorted[sorted.length - 1].speed
     const steps = 1000
     const stepSize = (maxSpeed - minSpeed) / steps
-    
+
+    let minIndex = 0
+    let minValue = Infinity
     for (let i = 0; i <= steps; i++) {
+      const value = curveFit.evalFn(minSpeed + i * stepSize)
+      if (value < minValue) {
+        minValue = value
+        minIndex = i
+      }
+    }
+
+    for (let i = minIndex; i <= steps; i++) {
       const speed = minSpeed + i * stepSize
       if (curveFit.evalFn(speed) >= threshold) {
         return { speed, lactate: threshold }
       }
     }
   }
-  
+
+  // Measured-point fallback: an ascending crossing requires the lower point to
+  // sit below the threshold, so an elevated first step is skipped naturally.
   for (let i = 0; i < sorted.length - 1; i++) {
     if (sorted[i].lactate < threshold && sorted[i + 1].lactate >= threshold) {
       const t = (threshold - sorted[i].lactate) / (sorted[i + 1].lactate - sorted[i].lactate)
@@ -487,11 +503,13 @@ function detectLT1Baseline(data: DataPoint[], baseline: number, curveFit?: Curve
       return { speed, lactate: threshold }
     }
   }
-  
-  if (sorted[0].lactate >= threshold) {
+
+  // Every measured value already sits above the threshold - only then is the
+  // slowest step a legitimate LT1.
+  if (sorted.every(p => p.lactate >= threshold)) {
     return { speed: sorted[0].speed, lactate: sorted[0].lactate }
   }
-  
+
   return null
 }
 
@@ -528,34 +546,37 @@ function detectLT2ModDmax(
   
   if (lineDenom === 0) return null
   
-  const numSamples = 100
+  const numSamples = 200
   const step = dx / numSamples
-  
+
   let maxDistance = 0
   let dmaxSpeed = 0
   let dmaxLactate = 0
-  
+
+  // A lactate curve is convex between the secant endpoints and therefore runs
+  // BELOW the secant. Restricting the search to that side keeps a residual
+  // warm-up bump near LT1 from being mistaken for the point of maximum
+  // curvature.
   for (let i = 1; i < numSamples; i++) {
     const speed = first.speed + i * step
     const lactate = curveFit.evalFn(speed)
-    
+
     const distance = Math.abs(lineA * speed + lineB * lactate + lineC) / lineDenom
     const secantY = first.lactate + (dy / dx) * (speed - first.speed)
-    const isAboveSecant = lactate > secantY
-    
-    if (isAboveSecant && distance > maxDistance) {
+
+    if (lactate < secantY && distance > maxDistance) {
       maxDistance = distance
       dmaxSpeed = speed
       dmaxLactate = lactate
     }
   }
-  
+
   if (dmaxSpeed === 0) {
     for (let i = 1; i < numSamples; i++) {
       const speed = first.speed + i * step
       const lactate = curveFit.evalFn(speed)
       const distance = Math.abs(lineA * speed + lineB * lactate + lineC) / lineDenom
-      
+
       if (distance > maxDistance) {
         maxDistance = distance
         dmaxSpeed = speed
@@ -563,7 +584,7 @@ function detectLT2ModDmax(
       }
     }
   }
-  
+
   if (dmaxSpeed === 0) return null
   
   return {
@@ -631,10 +652,15 @@ export function detectThresholds(steps: StepTestStep[], restingLactate?: number)
     hr: s.heartRate,
   })).sort((a, b) => a.speed - b.speed)
   
-  // Calculate baseline (minimum lactate - accounting for lactate dip)
-  const minStepLactate = Math.min(...data.map(d => d.lactate))
-  const baseline = Math.min(minStepLactate, restingLactate ?? Infinity)
+  // Baseline is the lowest lactate measured UNDER LOAD (Norwegian model).
+  // Resting lactate is deliberately not folded in: it is regularly lower than
+  // anything reached during the test and would drag LT1 towards slower paces.
+  const baseline = Math.min(...data.map(d => d.lactate))
   const maxLactate = Math.max(...data.map(d => d.lactate))
+
+  if (restingLactate !== undefined && restingLactate > baseline + 0.5) {
+    warnings.push('Ruhelaktat liegt ueber dem niedrigsten Belastungslaktat - Messung pruefen')
+  }
   
   // Quality warnings
   if (validSteps.length < 5) {
@@ -645,12 +671,23 @@ export function detectThresholds(steps: StepTestStep[], restingLactate?: number)
     warnings.push('Maximales Laktat unter 4.0 mmol/L - LT2 moeglicherweise ungenau')
   }
   
-  // Check for non-monotonic AFTER initial rise
-  const lt1Threshold = baseline + 0.4
-  let riseStarted = false
+  // Check for a drop AFTER the rise has actually started.
+  //
+  // The rise begins at the minimum of the series, not at "baseline + 0.4":
+  // with an elevated warm-up value on step 1 that threshold is already met
+  // while lactate is still falling, so the initial dip itself would be
+  // reported as a measurement error.
+  let minIndex = 0
   for (let i = 1; i < data.length; i++) {
-    if (data[i].lactate >= lt1Threshold) riseStarted = true
-    if (riseStarted && data[i].lactate < data[i - 1].lactate - 0.4) {
+    if (data[i].lactate < data[minIndex].lactate) minIndex = i
+  }
+
+  // Compare as a difference with a small tolerance - "a < b - 0.4" misfires on
+  // exact values like 1.7 < 2.1 - 0.4, where the subtraction yields
+  // 1.7000000000000002 in floating point.
+  const EPSILON = 1e-9
+  for (let i = minIndex + 1; i < data.length; i++) {
+    if (data[i - 1].lactate - data[i].lactate > 0.4 + EPSILON) {
       warnings.push('Laktatwerte nicht monoton steigend - Messung ueberpruefen')
       break
     }
@@ -757,6 +794,30 @@ export function detectThresholds(steps: StepTestStep[], restingLactate?: number)
     }
   }
   
+  // Plausibility checks on the finished thresholds. Without these a collapsed
+  // result (both thresholds pinned to the same end of the test) is reported
+  // with full confidence and no warning at all.
+  const slowestSpeed = data[0].speed
+  const fastestSpeed = data[data.length - 1].speed
+  const speedRange = fastestSpeed - slowestSpeed
+
+  if (lt1 && lt2) {
+    if (lt2.speed - lt1.speed < 0.05 * speedRange) {
+      warnings.push('LT1 und LT2 liegen ungewoehnlich nah beieinander - Ergebnis unsicher')
+    }
+    if (lt2.lactate <= lt1.lactate) {
+      warnings.push('LT2-Laktat nicht hoeher als LT1-Laktat - Kurvenverlauf unplausibel')
+    }
+  }
+
+  if (lt1 && speedRange > 0 && lt1.speed <= slowestSpeed + 0.02 * speedRange) {
+    warnings.push('LT1 liegt auf der langsamsten Stufe - Test startete moeglicherweise zu intensiv')
+  }
+
+  if (lt2 && speedRange > 0 && lt2.speed >= fastestSpeed - 0.02 * speedRange) {
+    warnings.push('LT2 liegt auf der schnellsten Stufe - Test war moeglicherweise zu kurz')
+  }
+
   // Determine confidence
   let confidence: ThresholdAnalysis['confidence'] = 'high'
   if (!lt1 || !lt2) {
@@ -766,7 +827,7 @@ export function detectThresholds(steps: StepTestStep[], restingLactate?: number)
   } else if (rSquared && rSquared < 0.95) {
     confidence = 'medium'
   }
-  
+
   // Build calculation log for full transparency
   // Compute secant parameters for log display
   const secantStart = lt1Result ? { speed: lt1Result.speed, lactate: lt1Result.lactate } : data[0]
@@ -933,21 +994,50 @@ export interface TrainingZoneInfo {
   color: string
 }
 
+/**
+ * Derive the five training zones from LT1 and LT2.
+ *
+ * The zones share their boundaries, so they tile the whole range without gaps.
+ * The previous definition anchored Z3 to LT1 and Z4 to LT2 independently,
+ * which left the entire span between the two thresholds unassigned.
+ *
+ * Lactate and heart rate ranges are derived from the athlete's measured
+ * threshold values rather than from a fixed table, so they cannot contradict
+ * the thresholds shown next to them.
+ */
 export function calculateTrainingZones(analysis: ThresholdAnalysis): TrainingZoneInfo[] {
   if (!analysis.lt1 || !analysis.lt2) return []
-  
+
   const lt1Pace = analysis.lt1.pace
   const lt2Pace = analysis.lt2.pace
   const lt1Hr = analysis.lt1.heartRate
   const lt2Hr = analysis.lt2.heartRate
-  
-  // Zone boundaries based on LT1 and LT2
-  // Faster pace = lower seconds per km
-  
-  // Helper to convert pace to speed
-  const paceToSpeed = (paceSecondsPerKm: number) => 3600 / paceSecondsPerKm
-  
-  // Define zone boundaries
+  const lt1La = analysis.lt1.lactate
+  const lt2La = analysis.lt2.lactate
+  const baseline = analysis.baseline
+
+  // Pace boundaries in seconds/km, from slowest to fastest. Consecutive zones
+  // share a boundary, so there are six values for five zones.
+  const boundaries = [
+    lt1Pace + 75, // slow end of Z1
+    lt1Pace + 20, // Z1 | Z2
+    lt1Pace + 5,  // Z2 | Z3
+    lt2Pace + 12, // Z3 | Z4
+    lt2Pace - 5,  // Z4 | Z5
+    lt2Pace - 30, // fast end of Z5
+  ]
+
+  // If the thresholds sit very close together the LT1- and LT2-anchored
+  // boundaries can cross. Force them strictly decreasing so no zone inverts.
+  for (let i = 1; i < boundaries.length; i++) {
+    boundaries[i] = Math.min(boundaries[i], boundaries[i - 1] - 1)
+  }
+
+  const hrRange = (min: number | undefined, max: number | undefined) =>
+    min !== undefined && max !== undefined
+      ? { min: Math.round(min), max: Math.round(max) }
+      : undefined
+
   const zoneDefs = [
     {
       name: 'Regeneration / Langer Dauerlauf',
@@ -955,11 +1045,9 @@ export function calculateTrainingZones(analysis: ThresholdAnalysis): TrainingZon
       abbrev: 'REKOM/LDL',
       zone: 'Z1',
       description: 'Sehr lockeres Tempo, aktive Erholung',
-      paceMin: lt1Pace + 40,
-      paceMax: lt1Pace + 80,
-      lactateMin: 0.8,
-      lactateMax: 1.5,
-      hrOffset: lt1Hr ? { min: -25, max: -10 } : null,
+      lactateMin: baseline,
+      lactateMax: baseline + 0.3,
+      hrRange: hrRange(lt1Hr && lt1Hr - 28, lt1Hr && lt1Hr - 13),
       color: '#22c55e',
     },
     {
@@ -967,12 +1055,10 @@ export function calculateTrainingZones(analysis: ThresholdAnalysis): TrainingZon
       shortName: 'GA1',
       abbrev: 'GA1',
       zone: 'Z2',
-      description: 'Lockerer Dauerlauf, unter LT1',
-      paceMin: lt1Pace + 10,
-      paceMax: lt1Pace + 40,
-      lactateMin: 1.2,
-      lactateMax: 2.0,
-      hrOffset: lt1Hr ? { min: -10, max: 0 } : null,
+      description: 'Lockerer Dauerlauf, knapp unter LT1',
+      lactateMin: baseline + 0.2,
+      lactateMax: lt1La,
+      hrRange: hrRange(lt1Hr && lt1Hr - 13, lt1Hr && lt1Hr - 3),
       color: '#84cc16',
     },
     {
@@ -980,12 +1066,10 @@ export function calculateTrainingZones(analysis: ThresholdAnalysis): TrainingZon
       shortName: 'GA2',
       abbrev: 'GA2',
       zone: 'Z3',
-      description: 'Mittlerer Dauerlauf, um LT1',
-      paceMin: lt1Pace - 10,
-      paceMax: lt1Pace + 10,
-      lactateMin: 1.8,
-      lactateMax: 2.5,
-      hrOffset: lt1Hr ? { min: -5, max: 5 } : null,
+      description: 'Mittlerer Dauerlauf zwischen LT1 und LT2',
+      lactateMin: lt1La,
+      lactateMax: lt2La,
+      hrRange: hrRange(lt1Hr && lt1Hr - 3, lt2Hr && lt2Hr - 4),
       color: '#eab308',
     },
     {
@@ -994,11 +1078,9 @@ export function calculateTrainingZones(analysis: ThresholdAnalysis): TrainingZon
       abbrev: 'TDL',
       zone: 'Z4',
       description: 'Tempolauf an LT2, Schwellenintervalle',
-      paceMin: lt2Pace - 5,
-      paceMax: lt2Pace + 10,
-      lactateMin: 2.5,
-      lactateMax: 4.0,
-      hrOffset: lt2Hr ? { min: -5, max: 3 } : null,
+      lactateMin: Math.max(lt1La, lt2La - 0.3),
+      lactateMax: lt2La + 0.8,
+      hrRange: hrRange(lt2Hr && lt2Hr - 4, lt2Hr && lt2Hr + 3),
       color: '#f97316',
     },
     {
@@ -1007,35 +1089,30 @@ export function calculateTrainingZones(analysis: ThresholdAnalysis): TrainingZon
       abbrev: 'WSA',
       zone: 'Z5',
       description: 'Intervalle ueber LT2, VO2max-Training',
-      paceMin: lt2Pace - 25,
-      paceMax: lt2Pace - 5,
-      lactateMin: 4.0,
-      lactateMax: 8.0,
-      hrOffset: lt2Hr ? { min: 0, max: 10 } : null,
+      lactateMin: lt2La + 0.8,
+      lactateMax: lt2La + 4,
+      hrRange: hrRange(lt2Hr && lt2Hr + 3, lt2Hr && lt2Hr + 12),
       color: '#ef4444',
     },
   ]
-  
-  const zones: TrainingZoneInfo[] = zoneDefs.map(z => ({
-    name: z.name,
-    shortName: z.shortName,
-    abbrev: z.abbrev,
-    zone: z.zone,
-    description: z.description,
-    paceRange: { min: z.paceMin, max: z.paceMax },
-    speedRange: { 
-      min: paceToSpeed(z.paceMax), // slower pace = lower speed
-      max: paceToSpeed(z.paceMin), // faster pace = higher speed
-    },
-    lactateRange: { min: z.lactateMin, max: z.lactateMax },
-    hrRange: z.hrOffset && lt1Hr ? { 
-      min: Math.round((z.zone <= 'Z3' ? lt1Hr : lt2Hr!) + z.hrOffset.min), 
-      max: Math.round((z.zone <= 'Z3' ? lt1Hr : lt2Hr!) + z.hrOffset.max),
-    } : undefined,
-    color: z.color,
-  }))
-  
-  return zones
+
+  return zoneDefs.map((z, i) => {
+    const slowPace = boundaries[i]
+    const fastPace = boundaries[i + 1]
+
+    return {
+      name: z.name,
+      shortName: z.shortName,
+      abbrev: z.abbrev,
+      zone: z.zone,
+      description: z.description,
+      paceRange: { min: fastPace, max: slowPace },
+      speedRange: { min: 3600 / slowPace, max: 3600 / fastPace },
+      lactateRange: { min: z.lactateMin, max: z.lactateMax },
+      hrRange: z.hrRange,
+      color: z.color,
+    }
+  })
 }
 
 // ============================================================================
@@ -1062,7 +1139,8 @@ export function analyzeStepTest(steps: StepData[], restingLactate?: number): Ste
   const zoneResults: TrainingZone[] = zones.map((z, i) => ({
     zone: (i + 1) as 1 | 2 | 3 | 4 | 5,
     name: z.name,
-    pace_range: [z.paceRange.max / 60, z.paceRange.min / 60],
+    // [min, max] in min/km - the faster (numerically smaller) pace first
+    pace_range: [z.paceRange.min / 60, z.paceRange.max / 60],
     hr_range: [z.hrRange?.min ?? 0, z.hrRange?.max ?? 0],
     description: z.description,
   }))

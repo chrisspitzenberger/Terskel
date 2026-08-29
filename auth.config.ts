@@ -10,6 +10,13 @@ export const authConfig = {
       const isLoggedIn = !!auth?.user;
       const isAuthRoute = nextUrl.pathname.startsWith('/login') || nextUrl.pathname.startsWith('/register');
 
+      // Public API routes — no auth check needed
+      const isPublicApiRoute =
+        nextUrl.pathname.startsWith('/api/webhooks/') ||
+        nextUrl.pathname.startsWith('/api/strava/');
+
+      if (isPublicApiRoute) return true;
+
       if (isAuthRoute) {
         if (isLoggedIn) return Response.redirect(new URL('/', nextUrl));
         return true;

@@ -33,8 +33,9 @@ interface AnalysisChartProps {
 
 // Format pace from seconds per km to MM:SS
 function formatPaceFromSeconds(secondsPerKm: number): string {
-  const minutes = Math.floor(secondsPerKm / 60)
-  const seconds = Math.round(secondsPerKm % 60)
+  const totalSeconds = Math.round(secondsPerKm)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
@@ -358,12 +359,13 @@ export function AnalysisChart({ steps, analysis }: AnalysisChartProps) {
                 <div className="space-y-2">
                   <h3 className="font-semibold text-green-700">LT1 - Aerobe Schwelle</h3>
                   <div className="bg-green-50 p-3 rounded-lg space-y-1.5">
-                    <p><strong>Primaere Methode:</strong> Log-Log Breakpoint (Beaver et al., 1985)</p>
+                    <p><strong>Primaere Methode:</strong> Baseline + 0.4 mmol/L (Norwegian Model)</p>
                     <p className="text-xs text-muted-foreground">
-                      Die Log-Log Transformation linearisiert die Laktatkurve in zwei Segmente. 
-                      Der Breakpoint markiert den Uebergang von aerobem zu gemischtem Stoffwechsel.
+                      Die Baseline ist das niedrigste unter Belastung gemessene Laktat. Gesucht wird der
+                      ANSTEIGENDE Durchgang der Kurve durch Baseline + 0.4 - ein erhoehter Startwert
+                      durch das Aufwaermen verschiebt die LT1 dadurch nicht.
                     </p>
-                    <p><strong>Fallback:</strong> Baseline + 0.4 mmol/L (Norwegian Model)</p>
+                    <p><strong>Fallback:</strong> Log-Log Breakpoint (Beaver et al., 1985)</p>
                     <p><strong>Typisch:</strong> 1.2-2.0 mmol/L bei 75-85% LT2-Tempo</p>
                     <p className="text-muted-foreground text-xs mt-2">
                       Ref: Beaver WL et al. (1985), Seiler S et al. (2013)
@@ -374,12 +376,12 @@ export function AnalysisChart({ steps, analysis }: AnalysisChartProps) {
                 <div className="space-y-2">
                   <h3 className="font-semibold text-red-700">LT2 - Anaerobe Schwelle (MLSS)</h3>
                   <div className="bg-red-50 p-3 rounded-lg space-y-1.5">
-                    <p><strong>Methode:</strong> Dmax mit Polynom 3. Grades (Cheng et al., 1992)</p>
+                    <p><strong>Methode:</strong> ModDmax mit Polynom 3. Grades (Cheng et al., 1992)</p>
                     <ol className="list-decimal list-inside ml-2 space-y-1 text-xs text-muted-foreground">
                       <li>Polynom 3. Grades an Laktatkurve anpassen (R² pruefen)</li>
-                      <li>Falls R² &lt; 0.95: Exponentialfunktion als Fallback</li>
-                      <li>Sekante vom ersten zum letzten Messpunkt</li>
-                      <li>Maximaler senkrechter Abstand = LT2 (Dmax)</li>
+                      <li>Falls R² &lt; 0.90: Exponentialfunktion als Fallback</li>
+                      <li>Sekante vom LT1-Punkt zum letzten Messpunkt</li>
+                      <li>Groesster senkrechter Abstand unterhalb der Sekante = LT2</li>
                     </ol>
                     <p><strong>Validierung:</strong> OBLA 4.0 mmol/L (Sjoedin & Jacobs, 1981)</p>
                     <p><strong>Typisch:</strong> 3.5-4.5 mmol/L, entspricht ~60min Wettkampftempo</p>
